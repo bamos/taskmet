@@ -178,7 +178,7 @@ if __name__ == '__main__':
         move_to_gpu(problem)
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         model = model.to(device)
-    
+
     # Get data
     X_train, Y_train, Y_train_aux = problem.get_train_data()
     X_val, Y_val, Y_val_aux = problem.get_val_data()
@@ -207,7 +207,7 @@ if __name__ == '__main__':
         for i in random.sample(range(len(X_train)), min(args.batchsize, len(X_train))):
             pred = model(X_train[i]).squeeze()
             losses.append(loss_fn(pred, Y_train[i], aux_data=Y_train_aux[i], partition='train', index=i))
-        loss = torch.stack(losses).mean()   
+        loss = torch.stack(losses).mean()
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
