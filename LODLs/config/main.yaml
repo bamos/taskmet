@@ -1,0 +1,73 @@
+# defaults:
+#   - hydra/launcher: submitit_slurm
+
+problem: cubic
+loadnew: False
+layers: 2
+iters: 5000
+earlystopping: True
+instances: 400
+testinstances: 200
+valfrac: 0.5
+valfreq: 5
+patience: 100
+seed: 0
+model: 'dense'
+loss: 'mse'
+lr: 1e-4
+batchsize: 1000
+
+#   Domain-specific: BudgetAllocation or CubicTopK
+budget: 1
+numitems: 50
+
+#   Domain-specific: BudgetAllocation
+numtargets: 10
+fakefeatures: 0
+
+#   Domain-specific: RMAB
+rmabbudget: 1
+numarms: 5
+gamma: 0.9
+minlift: 0.2
+scramblinglayers: 3
+scramblingsize: 64
+numfeatures: 16
+noisestd: 0.5
+eval: 'exact'
+
+#   Domain-specific: BipartiteMatching
+nodes: 10
+
+#   Domain-specific: PortfolioOptimization
+stocks: 50
+stockalpha: 0.1
+
+#   Decision-Focused Learning
+dflalpha: 1.
+
+#   Learned-Loss
+serial: True
+sampling: 'random'
+samplingstd: 5000
+losslr: 0.01
+
+#       Approach-Specific: Quadratic
+quadrank: 20
+quadalpha: 0
+
+hydra:
+  run:
+    dir: ./exp/local/${now:%Y.%m.%d}/${now:%H%M}
+  job:
+    chdir: True
+  # sweep:
+  #   dir: ./exp/${now:%Y.%m.%d}/${now:%H%M}
+  #   subdir: ${hydra.job.num}
+  # launcher:
+  #   max_num_timeout: 100000
+  #   timeout_min: 4319
+  #   # partition: scavenge
+  #   partition: learnlab
+  #   mem_gb: 64
+  #   gpus_per_node: 1
