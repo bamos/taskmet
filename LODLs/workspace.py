@@ -130,15 +130,8 @@ class Workspace:
         objectives = self.problem.get_objective(Y_test, Z_test_opt, aux_data=Y_test_aux)
         print(f"Optimal Decision Quality: {objectives.mean().item()}")
         print()
+        self.save()
 
-    # #   Plot predictions on test data
-    # plt.scatter(Y_test.sum(dim=-1).flatten().detach().tolist(), pred.sum(dim=-1).flatten().detach().tolist(), )
-    # plt.title(self.cfg.loss)
-    # plt.xlabel("True")
-    # plt.ylabel("Predicted")
-    # plt.xlim([0, 0.5])
-    # plt.ylim([0, 0.5])
-    # plt.show()
 
     def save(self, tag='latest'):
         path = os.path.join(self.work_dir, f'{tag}.pkl')
