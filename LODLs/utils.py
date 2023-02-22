@@ -7,6 +7,8 @@ import torch
 import inspect
 from itertools import repeat
 
+DIR = os.path.dirname(os.path.realpath(__file__))
+
 def init_if_not_saved(
     problem_cls,
     kwargs,
@@ -14,7 +16,7 @@ def init_if_not_saved(
     load_new=True,
 ):
     # Find the filename if a saved version of the problem with the same kwargs exists
-    master_filename = os.path.join(folder, f"{problem_cls.__name__}.csv")
+    master_filename = os.path.join(DIR, folder, f"{problem_cls.__name__}.csv")
     filename, saved_probs = find_saved_problem(master_filename, kwargs)
  
     if not load_new and filename is not None:
@@ -27,7 +29,7 @@ def init_if_not_saved(
 
         # Save model for the future
         print("Saving the problem")
-        filename = os.path.join(folder, f"{problem_cls.__name__}_{len(saved_probs)}.pkl")
+        filename = os.path.join(DIR, folder, f"{problem_cls.__name__}_{len(saved_probs)}.pkl")
         with open(filename, 'wb') as file:
             pickle.dump(problem, file)
 

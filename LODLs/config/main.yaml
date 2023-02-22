@@ -3,18 +3,18 @@
 
 problem: cubic
 loadnew: False
-layers: 2
+layers: 1
 iters: 5000
 earlystopping: True
 instances: 400
-testinstances: 200
+testinstances: 400
 valfrac: 0.5
 valfreq: 5
 patience: 100
 seed: 0
 model: 'dense'
 loss: 'mse'
-lr: 1e-4
+lr: 0.1
 batchsize: 1000
 
 #   Domain-specific: BudgetAllocation or CubicTopK
@@ -47,9 +47,10 @@ stockalpha: 0.1
 dflalpha: 1.
 
 #   Learned-Loss
-serial: True
-sampling: 'random'
-samplingstd: 5000
+serial: False
+sampling: 'random_hessian'
+numsamples: 50000
+samplingstd: 1.
 losslr: 0.01
 
 #       Approach-Specific: Quadratic
