@@ -21,14 +21,15 @@ from BipartiteMatching import BipartiteMatching
 from PortfolioOpt import PortfolioOpt
 from RMAB import RMAB
 from CubicTopK import CubicTopK
-from models import model_dict
+from models import model_dict, MetricModel
 from losses import MSE, get_loss_fn
 from utils import print_metrics, init_if_not_saved, move_to_gpu
+
 
 class Workspace:
     def __init__(self, cfg):
         self.work_dir = os.getcwd()
-        print(f'workspace: {self.work_dir}')
+        print(f"workspace: {self.work_dir}")
 
         self.cfg = cfg
 
@@ -37,7 +38,10 @@ class Workspace:
         # Load an ML model to predict the parameters of the problem
         print(f"Building {self.cfg.model} Model...")
         ipdim, opdim = self.problem.get_modelio_shape()
-        model_builder = model_dict[self.cfg.model]
+        if self.cfg.loss == "metric":
+            model_builder = MetricModel
+        else:
+            model_builder = model_dict[self.cfg.model]
         self.model = model_builder(
             num_features=ipdim,
             num_targets=opdim,
@@ -52,7 +56,7 @@ class Workspace:
         #   TODO: Figure out loss function "type" for mypy type checking. Define class/interface?
         print(f"Loading {self.cfg.loss} Loss Function...")
         loss_fn = get_loss_fn(
-            self.cfg.loss,
+            self.cfg.loss if not isinstance(self.model, MetricModel) else "dfl",
             self.problem,
             sampling=self.cfg.sampling,
             num_samples=self.cfg.numsamples,
@@ -84,12 +88,22 @@ class Workspace:
             if iter_idx % self.cfg.valfreq == 0:
                 self.save()
                 # Compute metrics
-                datasets = [(X_train, Y_train, Y_train_aux, 'train'), (X_val, Y_val, Y_val_aux, 'val')]
-                metrics = print_metrics(datasets, self.model, self.problem, self.cfg.loss, loss_fn, f"Iter {iter_idx},")
+                datasets = [
+                    (X_train, Y_train, Y_train_aux, "train"),
+                    (X_val, Y_val, Y_val_aux, "val"),
+                ]
+                metrics = print_metrics(
+                    datasets,
+                    self.model,
+                    self.problem,
+                    self.cfg.loss,
+                    loss_fn,
+                    f"Iter {iter_idx},",
+                )
 
                 # Save model if it's the best one
-                if best[1] is None or metrics['val']['loss'] < best[0]:
-                    best = (metrics['val']['loss'], deepcopy(self.model))
+                if best[1] is None or metrics["val"]["loss"] < best[0]:
+                    best = (metrics["val"]["loss"], deepcopy(self.model))
                     time_since_best = 0
 
                 # Stop if model hasn't improved for patience steps
@@ -98,9 +112,19 @@ class Workspace:
 
             # Learn
             losses = []
-            for i in random.sample(range(len(X_train)), min(self.cfg.batchsize, len(X_train))):
+            for i in random.sample(
+                range(len(X_train)), min(self.cfg.batchsize, len(X_train))
+            ):
                 pred = self.model(X_train[i]).squeeze()
-                losses.append(loss_fn(pred, Y_train[i], aux_data=Y_train_aux[i], partition='train', index=i))
+                losses.append(
+                    loss_fn(
+                        pred,
+                        Y_train[i],
+                        aux_data=Y_train_aux[i],
+                        partition="train",
+                        index=i,
+                    )
+                )
             loss = torch.stack(losses).mean()
             self.optimizer.zero_grad()
             loss.backward()
@@ -113,36 +137,45 @@ class Workspace:
         # Document how well this trained model does
         print("\nBenchmarking Model...")
         # Print final metrics
-        datasets = [(X_train, Y_train, Y_train_aux, 'train'), (X_val, Y_val, Y_val_aux, 'val'), (X_test, Y_test, Y_test_aux, 'test')]
-        print_metrics(datasets, self.model, self.problem,
-                      self.cfg.loss, loss_fn, "Final")
+        datasets = [
+            (X_train, Y_train, Y_train_aux, "train"),
+            (X_val, Y_val, Y_val_aux, "val"),
+            (X_test, Y_test, Y_test_aux, "test"),
+        ]
+        print_metrics(
+            datasets, self.model, self.problem, self.cfg.loss, loss_fn, "Final"
+        )
 
         #   Document the value of a random guess
         objs_rand = []
         for _ in range(10):
-            Z_test_rand = self.problem.get_decision(torch.rand_like(Y_test), aux_data=Y_test_aux, isTrain=False)
-            objectives = self.problem.get_objective(Y_test, Z_test_rand, aux_data=Y_test_aux)
+            Z_test_rand = self.problem.get_decision(
+                torch.rand_like(Y_test), aux_data=Y_test_aux, isTrain=False
+            )
+            objectives = self.problem.get_objective(
+                Y_test, Z_test_rand, aux_data=Y_test_aux
+            )
             objs_rand.append(objectives)
         print(f"\nRandom Decision Quality: {torch.stack(objs_rand).mean().item()}")
 
         #   Document the optimal value
-        Z_test_opt = self.problem.get_decision(Y_test, aux_data=Y_test_aux, isTrain=False)
+        Z_test_opt = self.problem.get_decision(
+            Y_test, aux_data=Y_test_aux, isTrain=False
+        )
         objectives = self.problem.get_objective(Y_test, Z_test_opt, aux_data=Y_test_aux)
         print(f"Optimal Decision Quality: {objectives.mean().item()}")
         print()
         self.save()
 
-
-    def save(self, tag='latest'):
-        path = os.path.join(self.work_dir, f'{tag}.pkl')
-        with open(path, 'wb') as f:
+    def save(self, tag="latest"):
+        path = os.path.join(self.work_dir, f"{tag}.pkl")
+        with open(path, "wb") as f:
             pkl.dump(self, f)
 
     def __getstate__(self):
         d = copy(self.__dict__)
-        del d['problem']
+        del d["problem"]
         return d
-
 
     def __setstate__(self, d):
         self.__dict__ = d
@@ -151,52 +184,62 @@ class Workspace:
     def load_problem(self):
         print(f"Loading {self.cfg.problem} Problem...")
         init_problem = partial(init_if_not_saved, load_new=self.cfg.loadnew)
-        if self.cfg.problem == 'budgetalloc':
-            problem_kwargs =    {'num_train_instances': self.cfg.instances,
-                                'num_test_instances': self.cfg.testinstances,
-                                'num_targets': self.cfg.numtargets,
-                                'num_items': self.cfg.numitems,
-                                'budget': self.cfg.budget,
-                                'num_fake_targets': self.cfg.fakefeatures,
-                                'rand_seed': self.cfg.seed,
-                                'val_frac': self.cfg.valfrac,}
+        if self.cfg.problem == "budgetalloc":
+            problem_kwargs = {
+                "num_train_instances": self.cfg.instances,
+                "num_test_instances": self.cfg.testinstances,
+                "num_targets": self.cfg.numtargets,
+                "num_items": self.cfg.numitems,
+                "budget": self.cfg.budget,
+                "num_fake_targets": self.cfg.fakefeatures,
+                "rand_seed": self.cfg.seed,
+                "val_frac": self.cfg.valfrac,
+            }
             problem = init_problem(BudgetAllocation, problem_kwargs)
-        elif self.cfg.problem == 'cubic':
-            problem_kwargs =    {'num_train_instances': self.cfg.instances,
-                                'num_test_instances': self.cfg.testinstances,
-                                'num_items': self.cfg.numitems,
-                                'budget': self.cfg.budget,
-                                'rand_seed': self.cfg.seed,
-                                'val_frac': self.cfg.valfrac,}
+        elif self.cfg.problem == "cubic":
+            problem_kwargs = {
+                "num_train_instances": self.cfg.instances,
+                "num_test_instances": self.cfg.testinstances,
+                "num_items": self.cfg.numitems,
+                "budget": self.cfg.budget,
+                "rand_seed": self.cfg.seed,
+                "val_frac": self.cfg.valfrac,
+            }
             problem = init_problem(CubicTopK, problem_kwargs)
-        elif self.cfg.problem == 'bipartitematching':
-            problem_kwargs =    {'num_train_instances': self.cfg.instances,
-                                'num_test_instances': self.cfg.testinstances,
-                                'num_nodes': self.cfg.nodes,
-                                'val_frac': self.cfg.valfrac,
-                                'rand_seed': self.cfg.seed,}
+        elif self.cfg.problem == "bipartitematching":
+            problem_kwargs = {
+                "num_train_instances": self.cfg.instances,
+                "num_test_instances": self.cfg.testinstances,
+                "num_nodes": self.cfg.nodes,
+                "val_frac": self.cfg.valfrac,
+                "rand_seed": self.cfg.seed,
+            }
             problem = init_problem(BipartiteMatching, problem_kwargs)
-        elif self.cfg.problem == 'rmab':
-            problem_kwargs =    {'num_train_instances': self.cfg.instances,
-                                'num_test_instances': self.cfg.testinstances,
-                                'num_arms': self.cfg.numarms,
-                                'eval_method': self.cfg.eval,
-                                'min_lift': self.cfg.minlift,
-                                'budget': self.cfg.rmabbudget,
-                                'gamma': self.cfg.gamma,
-                                'num_features': self.cfg.numfeatures,
-                                'num_intermediate': self.cfg.scramblingsize,
-                                'num_layers': self.cfg.scramblinglayers,
-                                'noise_std': self.cfg.noisestd,
-                                'val_frac': self.cfg.valfrac,
-                                'rand_seed': self.cfg.seed,}
+        elif self.cfg.problem == "rmab":
+            problem_kwargs = {
+                "num_train_instances": self.cfg.instances,
+                "num_test_instances": self.cfg.testinstances,
+                "num_arms": self.cfg.numarms,
+                "eval_method": self.cfg.eval,
+                "min_lift": self.cfg.minlift,
+                "budget": self.cfg.rmabbudget,
+                "gamma": self.cfg.gamma,
+                "num_features": self.cfg.numfeatures,
+                "num_intermediate": self.cfg.scramblingsize,
+                "num_layers": self.cfg.scramblinglayers,
+                "noise_std": self.cfg.noisestd,
+                "val_frac": self.cfg.valfrac,
+                "rand_seed": self.cfg.seed,
+            }
             problem = init_problem(RMAB, problem_kwargs)
-        elif self.cfg.problem == 'portfolio':
-            problem_kwargs =    {'num_train_instances': self.cfg.instances,
-                                'num_test_instances': self.cfg.testinstances,
-                                'num_stocks': self.cfg.stocks,
-                                'alpha': self.cfg.stockalpha,
-                                'val_frac': self.cfg.valfrac,
-                                'rand_seed': self.cfg.seed,}
+        elif self.cfg.problem == "portfolio":
+            problem_kwargs = {
+                "num_train_instances": self.cfg.instances,
+                "num_test_instances": self.cfg.testinstances,
+                "num_stocks": self.cfg.stocks,
+                "alpha": self.cfg.stockalpha,
+                "val_frac": self.cfg.valfrac,
+                "rand_seed": self.cfg.seed,
+            }
             problem = init_problem(PortfolioOpt, problem_kwargs)
         self.problem = problem

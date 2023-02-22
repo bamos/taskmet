@@ -13,7 +13,8 @@ valfreq: 5
 patience: 100
 seed: 0
 model: 'dense'
-loss: 'mse'
+# loss: 'mse'
+loss: 'metric'
 lr: 0.1
 batchsize: 1000
 

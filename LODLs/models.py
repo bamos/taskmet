@@ -1,5 +1,6 @@
 from numpy import square
 import torch
+import torch.nn as nn
 from math import sqrt
 from functools import reduce
 import operator
@@ -14,18 +15,18 @@ def dense_nn(
     num_targets,
     num_layers,
     intermediate_size=10,
-    activation='relu',
-    output_activation='sigmoid',
+    activation="relu",
+    output_activation="sigmoid",
 ):
     if num_layers > 1:
         if intermediate_size is None:
             intermediate_size = max(num_features, num_targets)
-        if activation == 'relu':
+        if activation == "relu":
             activation_fn = torch.nn.ReLU
-        elif activation == 'sigmoid':
+        elif activation == "sigmoid":
             activation_fn = torch.nn.Sigmoid
         else:
-            raise Exception('Invalid activation function: ' + str(activation))
+            raise Exception("Invalid activation function: " + str(activation))
         net_layers = [torch.nn.Linear(num_features, intermediate_size), activation_fn()]
         for _ in range(num_layers - 2):
             net_layers.append(torch.nn.Linear(intermediate_size, intermediate_size))
@@ -33,42 +34,97 @@ def dense_nn(
         if not isinstance(num_targets, tuple):
             net_layers.append(torch.nn.Linear(intermediate_size, num_targets))
         else:
-            net_layers.append(torch.nn.Linear(intermediate_size, reduce(operator.mul, num_targets, 1)))
+            net_layers.append(
+                torch.nn.Linear(intermediate_size, reduce(operator.mul, num_targets, 1))
+            )
             net_layers.append(View(num_targets))
     else:
         if not isinstance(num_targets, tuple):
             net_layers = [torch.nn.Linear(num_features, num_targets)]
         else:
-            net_layers = [torch.nn.Linear(num_features, reduce(operator.mul, num_targets, 1)), View(num_targets)]
+            net_layers = [
+                torch.nn.Linear(num_features, reduce(operator.mul, num_targets, 1)),
+                View(num_targets),
+            ]
 
-    if output_activation == 'relu':
+    if output_activation == "relu":
         net_layers.append(torch.nn.ReLU())
-    elif output_activation == 'sigmoid':
+    elif output_activation == "sigmoid":
         net_layers.append(torch.nn.Sigmoid())
-    elif output_activation == 'tanh':
+    elif output_activation == "tanh":
         net_layers.append(torch.nn.Tanh())
-    elif output_activation == 'softmax':
+    elif output_activation == "softmax":
         net_layers.append(torch.nn.Softmax(dim=-1))
+    elif output_activation == "elu":
+        net_layers.append(torch.nn.ELU())
 
     return torch.nn.Sequential(*net_layers)
+
+
+class MetricModel(nn.Module):
+    def __init__(
+        self,
+        num_features,
+        num_targets,
+        num_layers,
+        intermediate_size=10,
+        activation="relu",
+        output_activation="sigmoid",
+    ):
+        super(MetricModel, self).__init__()
+        self.predictor = dense_nn(
+            num_features,
+            num_targets,
+            num_layers,
+            intermediate_size=intermediate_size,
+            activation=activation,
+            output_activation=output_activation,
+        )
+
+        self.metric = dense_nn(
+            num_features, 1, 3, 20, activation="relu", output_activation="elu"
+        )
+        # TODO: make output dimension of metric generalizable
+        # TODO: initialize metric to be identity
+        self.predictor_optimizer = torch.optim.Adam(
+            self.predictor.parameters(), lr=1e-3
+        )
+
+    def update_predictor(self):
+        # TODO: Train predictor
+        pass
+
+    def forward(self, X):
+        # TODO: MAML
+        return self.predictor(X)
+
+    def metric_loss(self, X, Yhats, Ys):
+        A = self.metric(X)
+        import ipdb
+
+        ipdb.set_trace()
+        return A * (Yhats - Ys) ** 2
+
 
 class DenseLoss(torch.nn.Module):
     """
     A Neural Network-based loss function
     """
 
-    def __init__(
-        self,
-        Y,
-        num_layers=4,
-        hidden_dim=100,
-        activation='relu'
-    ):
+    def __init__(self, Y, num_layers=4, hidden_dim=100, activation="relu"):
         super(DenseLoss, self).__init__()
         # Save true labels
         self.Y = Y.detach().view((-1))
         # Initialise model
-        self.model = torch.nn.Parameter(dense_nn(Y.numel(), 1, num_layers, intermediate_size=hidden_dim, output_activation=activation))
+        self.model = torch.nn.Parameter(
+            dense_nn(
+                Y.numel(),
+                1,
+                num_layers,
+                intermediate_size=hidden_dim,
+                output_activation=activation,
+            )
+        )
 
     def forward(self, Yhats):
         # Flatten inputs
@@ -97,7 +153,9 @@ class WeightedMSE(torch.nn.Module):
 
         # Compute MSE
         squared_error = (Yhat - self.Y).square()
-        weighted_mse = (squared_error * self.weights.clamp(min=self.min_val)).mean(dim=-1)
+        weighted_mse = (squared_error * self.weights.clamp(min=self.min_val)).mean(
+            dim=-1
+        )
 
         return weighted_mse
 
@@ -122,8 +180,12 @@ class WeightedMSEPlusPlus(torch.nn.Module):
         Yhat = Yhats.view((-1, self.Y.shape[0]))
 
         # Get weights for positive and negative components separately
-        pos_weights = (Yhat > self.Y.unsqueeze(0)).float() * self.weights_pos.clamp(min=self.min_val)
-        neg_weights = (Yhat < self.Y.unsqueeze(0)).float() * self.weights_neg.clamp(min=self.min_val)
+        pos_weights = (Yhat > self.Y.unsqueeze(0)).float() * self.weights_pos.clamp(
+            min=self.min_val
+        )
+        neg_weights = (Yhat < self.Y.unsqueeze(0)).float() * self.weights_neg.clamp(
+            min=self.min_val
+        )
         weights = pos_weights + neg_weights
 
         # Compute MSE
@@ -153,15 +215,19 @@ class WeightedCE(torch.nn.Module):
     def forward(self, Yhat):
         # Flatten inputs
         if len(self.Y_raw.shape) >= 2:
-            Yhat = Yhat.view((*Yhat.shape[:-len(self.Y_raw.shape)], self.num_dims))
+            Yhat = Yhat.view((*Yhat.shape[: -len(self.Y_raw.shape)], self.num_dims))
 
         # Get weights for positive and negative components separately
-        pos_weights = (Yhat > self.Y.unsqueeze(0)).float() * self.weights_pos.clamp(min=self.min_val)
-        neg_weights = (Yhat < self.Y.unsqueeze(0)).float() * self.weights_neg.clamp(min=self.min_val)
+        pos_weights = (Yhat > self.Y.unsqueeze(0)).float() * self.weights_pos.clamp(
+            min=self.min_val
+        )
+        neg_weights = (Yhat < self.Y.unsqueeze(0)).float() * self.weights_neg.clamp(
+            min=self.min_val
+        )
         weights = pos_weights + neg_weights
 
         # Compute MSE
-        error = torch.nn.BCELoss(reduction='none')(Yhat, self.Y.expand(*Yhat.shape))
+        error = torch.nn.BCELoss(reduction="none")(Yhat, self.Y.expand(*Yhat.shape))
         weighted_ce = (error * weights).mean(dim=-1)
 
         return weighted_ce
@@ -205,8 +271,7 @@ class TwoVarQuadratic(torch.nn.Module):
         self.beta = torch.nn.Parameter(torch.tensor(0.5))
 
     def forward(self, Yhat):
-        """
-        """
+        """ """
         # Flatten inputs
         Yhat = Yhat.view((Yhat.shape[0], -1))
 
@@ -227,10 +292,7 @@ class QuadraticPlusPlus(torch.nn.Module):
     """
 
     def __init__(
-        self,
-        Y,  # true labels
-        quadalpha=1e-3,  # regularisation weight
-        **kwargs
+        self, Y, quadalpha=1e-3, **kwargs  # true labels  # regularisation weight
     ):
         super(QuadraticPlusPlus, self).__init__()
         self.alpha = quadalpha
@@ -239,13 +301,15 @@ class QuadraticPlusPlus(torch.nn.Module):
         self.num_dims = self.Y.shape[0]
 
         # Create quadratic matrices
-        bases = torch.rand((self.num_dims, self.num_dims, 4)) / (self.num_dims * self.num_dims)
-        self.bases = torch.nn.Parameter(bases)  
+        bases = torch.rand((self.num_dims, self.num_dims, 4)) / (
+            self.num_dims * self.num_dims
+        )
+        self.bases = torch.nn.Parameter(bases)
 
     def forward(self, Yhat):
         # Flatten inputs
         if len(Yhat.shape) >= 2:
-            Yhat = Yhat.view((*Yhat.shape[:-len(self.Y_raw.shape)], self.num_dims))
+            Yhat = Yhat.view((*Yhat.shape[: -len(self.Y_raw.shape)], self.num_dims))
 
         # Measure distance between predicted and true distributions
         diff = (self.Y - Yhat).unsqueeze(-2)
@@ -273,6 +337,7 @@ class QuadraticPlusPlus(torch.nn.Module):
         basis = bases.gather(-1, index).squeeze()
         return torch.tril(basis)
 
+
 class LowRankQuadratic(torch.nn.Module):
     """
     Model that copies the structure of MSE-Sum
@@ -291,13 +356,15 @@ class LowRankQuadratic(torch.nn.Module):
         self.Y = torch.nn.Parameter(self.Y_raw.view((-1)))
 
         # Create a quadratic matrix
-        basis = torch.tril(torch.rand((self.Y.shape[0], rank)) / (self.Y.shape[0] * self.Y.shape[0]))
-        self.basis = torch.nn.Parameter(basis)  
+        basis = torch.tril(
+            torch.rand((self.Y.shape[0], rank)) / (self.Y.shape[0] * self.Y.shape[0])
+        )
+        self.basis = torch.nn.Parameter(basis)
 
     def forward(self, Yhat):
         # Flatten inputs
         if len(Yhat.shape) >= 2:
-            Yhat = Yhat.view((*Yhat.shape[:-len(self.Y_raw.shape)], self.Y.shape[0]))
+            Yhat = Yhat.view((*Yhat.shape[: -len(self.Y_raw.shape)], self.Y.shape[0]))
 
         # Measure distance between predicted and true distributions
         diff = self.Y - Yhat
@@ -312,4 +379,4 @@ class LowRankQuadratic(torch.nn.Module):
         return quad + self.alpha * mse
 
 
-model_dict = {'dense': dense_nn}
+model_dict = {"dense": dense_nn}
