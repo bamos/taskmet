@@ -10,10 +10,11 @@ import torch
 import random
 import pdb
 import matplotlib.pyplot as plt
-from copy import deepcopy
+from copy import deepcopy, copy
 
 import hydra
 import setproctitle
+import pickle as pkl
 
 from BudgetAllocation import BudgetAllocation
 from BipartiteMatching import BipartiteMatching
@@ -81,6 +82,7 @@ class Workspace:
         for iter_idx in range(self.cfg.iters):
             # Check metrics on val set
             if iter_idx % self.cfg.valfreq == 0:
+                self.save()
                 # Compute metrics
                 datasets = [(X_train, Y_train, Y_train_aux, 'train'), (X_val, Y_val, Y_val_aux, 'val')]
                 metrics = print_metrics(datasets, self.model, self.problem, self.cfg.loss, loss_fn, f"Iter {iter_idx},")
@@ -144,7 +146,7 @@ class Workspace:
             pkl.dump(self, f)
 
     def __getstate__(self):
-        d = copy.copy(self.__dict__)
+        d = copy(self.__dict__)
         del d['problem']
         return d
 
