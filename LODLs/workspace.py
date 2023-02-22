@@ -112,19 +112,20 @@ class Workspace:
         print("\nBenchmarking Model...")
         # Print final metrics
         datasets = [(X_train, Y_train, Y_train_aux, 'train'), (X_val, Y_val, Y_val_aux, 'val'), (X_test, Y_test, Y_test_aux, 'test')]
-        print_metrics(datasets, model, problem, self.cfg.loss, loss_fn, "Final")
+        print_metrics(datasets, self.model, self.problem,
+                      self.cfg.loss, loss_fn, "Final")
 
         #   Document the value of a random guess
         objs_rand = []
         for _ in range(10):
-            Z_test_rand = problem.get_decision(torch.rand_like(Y_test), aux_data=Y_test_aux, isTrain=False)
-            objectives = problem.get_objective(Y_test, Z_test_rand, aux_data=Y_test_aux)
+            Z_test_rand = self.problem.get_decision(torch.rand_like(Y_test), aux_data=Y_test_aux, isTrain=False)
+            objectives = self.problem.get_objective(Y_test, Z_test_rand, aux_data=Y_test_aux)
             objs_rand.append(objectives)
         print(f"\nRandom Decision Quality: {torch.stack(objs_rand).mean().item()}")
 
         #   Document the optimal value
-        Z_test_opt = problem.get_decision(Y_test, aux_data=Y_test_aux, isTrain=False)
-        objectives = problem.get_objective(Y_test, Z_test_opt, aux_data=Y_test_aux)
+        Z_test_opt = self.problem.get_decision(Y_test, aux_data=Y_test_aux, isTrain=False)
+        objectives = self.problem.get_objective(Y_test, Z_test_opt, aux_data=Y_test_aux)
         print(f"Optimal Decision Quality: {objectives.mean().item()}")
         print()
 
