@@ -5,6 +5,7 @@ from math import sqrt
 from functools import reduce
 import operator
 import pdb
+import random
 
 from utils import View
 
@@ -81,29 +82,41 @@ class MetricModel(nn.Module):
             output_activation=output_activation,
         )
 
-        self.metric = dense_nn(
-            num_features, 1, 3, 20, activation="relu", output_activation="elu"
+        # self.metric = dense_nn(
+        #     num_features, 1, 3, 20, activation="relu", output_activation="elu"
+        # )
+
+        self.metric = nn.Sequential(
+            nn.Linear(num_features, 1, bias=False), nn.Softplus()
         )
+        # import ipdb
+
+        # ipdb.set_trace()
         # TODO: make output dimension of metric generalizable
         # TODO: initialize metric to be identity
         self.predictor_optimizer = torch.optim.Adam(
             self.predictor.parameters(), lr=1e-3
         )
 
-    def update_predictor(self):
-        # TODO: Train predictor
-        pass
+    def update_predictor(self, X_train, Y_train, batchsize, num_iters=2):
+        for train_iter in range(num_iters):
+            losses = []
+            for i in random.sample(range(len(X_train)), min(batchsize, len(X_train))):
+                pred = self.predictor(X_train[i]).squeeze()
+
+                losses.append(self.metric_loss(X_train[i], pred, Y_train[i]))
+            loss = torch.stack(losses).mean()
+            self.predictor_optimizer.zero_grad()
+            loss.backward()
+            self.predictor_optimizer.step()
 
     def forward(self, X):
         # TODO: MAML
         return self.predictor(X)
 
     def metric_loss(self, X, Yhats, Ys):
-        A = self.metric(X)
-        import ipdb
-
-        ipdb.set_trace()
-        return A * (Yhats - Ys) ** 2
+        A = self.metric(X).ravel()
+        return (A * (Yhats - Ys) ** 2).mean()
 
 
 class DenseLoss(torch.nn.Module):

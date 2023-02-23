@@ -81,6 +81,8 @@ class Workspace:
         X_val, Y_val, Y_val_aux = self.problem.get_val_data()
         X_test, Y_test, Y_test_aux = self.problem.get_test_data()
 
+        self.model.update_predictor(X_train, Y_train, batchsize=self.cfg.batchsize)
+
         best = (float("inf"), None)
         time_since_best = 0
         for iter_idx in range(self.cfg.iters):
@@ -131,8 +133,8 @@ class Workspace:
             self.optimizer.step()
             time_since_best += 1
 
-        if self.cfg.earlystopping:
-            self.model = best[1]
+        # if self.cfg.earlystopping:
+        #     self.model = best[1]
 
         # Document how well this trained model does
         print("\nBenchmarking Model...")
