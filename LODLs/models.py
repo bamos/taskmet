@@ -98,7 +98,7 @@ class MetricModel(nn.Module):
             self.predictor.parameters(), lr=1e-3
         )
 
-    def update_predictor(self, X_train, Y_train, batchsize, num_iters=2):
+    def update_predictor(self, X_train, Y_train, batchsize, num_iters=1001):
         for train_iter in range(num_iters):
             losses = []
             for i in random.sample(range(len(X_train)), min(batchsize, len(X_train))):
@@ -110,12 +110,16 @@ class MetricModel(nn.Module):
             loss.backward()
             self.predictor_optimizer.step()
 
+            if train_iter == 0 or train_iter % 10 == 0:
+                print(f'iter {train_iter} loss: {loss.item():.2e}')
+
     def forward(self, X):
         # TODO: MAML
         return self.predictor(X)
 
     def metric_loss(self, X, Yhats, Ys):
-        A = self.metric(X).ravel()
+        # A = self.metric(X).ravel()
+        A = (X.abs() > 0.90).ravel().float()
         return (A * (Yhats - Ys) ** 2).mean()
 
 

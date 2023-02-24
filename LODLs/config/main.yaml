@@ -1,5 +1,5 @@
-# defaults:
-#   - hydra/launcher: submitit_slurm
+defaults:
+  - hydra/launcher: submitit_slurm
 
 problem: cubic
 loadnew: False
@@ -63,13 +63,12 @@ hydra:
     dir: ./exp/local/${now:%Y.%m.%d}/${now:%H%M}
   job:
     chdir: True
-  # sweep:
-  #   dir: ./exp/${now:%Y.%m.%d}/${now:%H%M}
-  #   subdir: ${hydra.job.num}
-  # launcher:
-  #   max_num_timeout: 100000
-  #   timeout_min: 4319
-  #   # partition: scavenge
-  #   partition: learnlab
-  #   mem_gb: 64
-  #   gpus_per_node: 1
+  sweep:
+    dir: ./exp/${now:%Y.%m.%d}/${now:%H%M}
+    subdir: ${hydra.job.num}
+  launcher:
+    max_num_timeout: 100000
+    timeout_min: 4319
+    partition: devlab
+    mem_gb: 64
+    gpus_per_node: 1
