@@ -9,14 +9,17 @@ earlystopping: True
 instances: 400
 testinstances: 400
 valfrac: 0.5
-valfreq: 5
+valfreq: 100
 patience: 100
 seed: 0
 model: 'dense'
 # loss: 'mse'
 loss: 'metric'
-lr: 0.1
-batchsize: 1000
+lr: 1e-4
+batchsize: 1
+
+num_inner_iters_init: 1001
+num_inner_iters: 1
 
 #   Domain-specific: BudgetAllocation or CubicTopK
 budget: 1

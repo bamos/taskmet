@@ -49,7 +49,10 @@ class Workspace:
             intermediate_size=500,
             output_activation=self.problem.get_output_activation(),
         )
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=cfg.lr)
+
+        # TODO: Revert for non-metric
+        # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=cfg.lr)
+        self.optimizer = torch.optim.Adam(self.model.metric_params, lr=cfg.lr)
 
     def run(self):
         # Load a loss function to train the ML model on
@@ -76,13 +79,16 @@ class Workspace:
             device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             self.model = self.model.to(device)
 
+        self.problem.plot('latest.png', self)
+
         # Get data
         X_train, Y_train, Y_train_aux = self.problem.get_train_data()
         X_val, Y_val, Y_val_aux = self.problem.get_val_data()
         X_test, Y_test, Y_test_aux = self.problem.get_test_data()
 
+        # TODO Set batch sizes/num_iters/opts somewhere else?
         self.model.update_predictor(
-            X_train, Y_train, batchsize=self.cfg.batchsize)
+            X_train, Y_train, num_iters=self.cfg.num_inner_iters_init)
 
         best = (float("inf"), None)
         time_since_best = 0
@@ -90,6 +96,16 @@ class Workspace:
             # Check metrics on val set
             if iter_idx % self.cfg.valfreq == 0:
                 self.save()
+
+                # TODO: copy instead of re-plotting
+                self.problem.plot('latest.png', self)
+                self.problem.plot(f'vis_{iter_idx:05d}.png', self)
+
+
+                # print(f'  metric weight value: {self.model.metric_params[0].item():.2f}')
+                # print(f'  metric weight grad: {self.model.metric_params[0].grad.item():.2f}')
+
+
                 # Compute metrics
                 datasets = [
                     (X_train, Y_train, Y_train_aux, "train"),
@@ -105,13 +121,13 @@ class Workspace:
                 )
 
                 # Save model if it's the best one
-                if best[1] is None or metrics["val"]["loss"] < best[0]:
-                    best = (metrics["val"]["loss"], deepcopy(self.model))
-                    time_since_best = 0
+                # if best[1] is None or metrics["val"]["loss"] < best[0]:
+                #     best = (metrics["val"]["loss"], deepcopy(self.model))
+                #     time_since_best = 0
 
                 # Stop if model hasn't improved for patience steps
-                if self.cfg.earlystopping and time_since_best > self.cfg.patience:
-                    break
+                # if self.cfg.earlystopping and time_since_best > self.cfg.patience:
+                #     break
 
             # Learn
             losses = []
@@ -131,8 +147,13 @@ class Workspace:
             loss = torch.stack(losses).mean()
             self.optimizer.zero_grad()
             loss.backward()
+
             self.optimizer.step()
             time_since_best += 1
+
+            # TODO Set batch sizes/num_iters/opts somewhere else?
+            self.model.update_predictor(
+                X_train, Y_train, num_iters=self.cfg.num_inner_iters)
 
         # if self.cfg.earlystopping:
         #     self.model = best[1]

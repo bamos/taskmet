@@ -1,11 +1,14 @@
 from numpy import square
 import torch
+import functorch
+import copy
 import torch.nn as nn
 from math import sqrt
 from functools import reduce
 import operator
 import pdb
 import random
+import functools
 
 from utils import View
 
@@ -62,6 +65,21 @@ def dense_nn(
     return torch.nn.Sequential(*net_layers)
 
 
+class MetricNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.base = nn.Sequential(
+            nn.Linear(1, 100),
+            nn.ReLU(),
+            nn.Linear(100, 1)
+        )
+
+    def forward(self, x):
+        A = torch.nn.functional.softplus(self.base(x))
+        # TODO: extend for PSD matrices with bounds from the
+        # identity metric
+        return A
+
 class MetricModel(nn.Module):
     def __init__(
         self,
@@ -82,45 +100,106 @@ class MetricModel(nn.Module):
             output_activation=output_activation,
         )
 
-        # self.metric = dense_nn(
-        #     num_features, 1, 3, 20, activation="relu", output_activation="elu"
-        # )
+        # TODO: decide on best way of handling the metric's params
+        self.metric_def = MetricNN().cuda()
+        # self.metric_def = nn.Sequential(
+        #     nn.Linear(num_features, 1, bias=False), nn.Softplus()
+        # ).cuda()
+        metric_func, self.metric_params = functorch.make_functional(
+            self.metric_def)
 
-        self.metric = nn.Sequential(
-            nn.Linear(num_features, 1, bias=False), nn.Softplus()
-        )
-        # import ipdb
-
-        # ipdb.set_trace()
         # TODO: make output dimension of metric generalizable
         # TODO: initialize metric to be identity
         self.predictor_optimizer = torch.optim.Adam(
             self.predictor.parameters(), lr=1e-3
         )
 
-    def update_predictor(self, X_train, Y_train, batchsize, num_iters=1001):
+    def update_predictor(self, X_train, Y_train, prediction_batchsize=1, implicit_diff_batchsize=100,  num_iters=1001):
+        # Fit the predictor to the data with the current metric loss
+        metric_loss = self.get_metric_loss()
+
+        # print('-- updating predictor')
         for train_iter in range(num_iters):
             losses = []
-            for i in random.sample(range(len(X_train)), min(batchsize, len(X_train))):
+            for i in random.sample(range(len(X_train)), min(prediction_batchsize, len(X_train))):
                 pred = self.predictor(X_train[i]).squeeze()
 
-                losses.append(self.metric_loss(X_train[i], pred, Y_train[i]))
+                losses.append(metric_loss(X_train[i], pred, Y_train[i]))
             loss = torch.stack(losses).mean()
             self.predictor_optimizer.zero_grad()
             loss.backward()
             self.predictor_optimizer.step()
 
-            if train_iter == 0 or train_iter % 10 == 0:
-                print(f'iter {train_iter} loss: {loss.item():.2e}')
+            # if train_iter == 0 or train_iter % 10 == 0:
+                # print(f'inner iter {train_iter} loss: {loss.item():.2e}')
 
-    def forward(self, X):
-        # TODO: MAML
-        return self.predictor(X)
 
-    def metric_loss(self, X, Yhats, Ys):
-        # A = self.metric(X).ravel()
-        A = (X.abs() > 0.90).ravel().float()
-        return (A * (Yhats - Ys) ** 2).mean()
+        # Assume we have the optimal predictor. Make the predictions
+        # differentiable w.r.t. the metric with the IFT by applying
+        # a Newton update to the predictor's parameters.
+        # TODO: Clean up, move somewhere else, check for efficiency, and
+        # add other implicit diff modes?
+        pred_func, pred_params = functorch.make_functional(self.predictor)
+
+        def pred_loss(pred_params, metric_params):
+            losses = []
+            for i in random.sample(range(len(X_train)), min(implicit_diff_batchsize, len(X_train))):
+                pred = pred_func(pred_params, X_train[i]).squeeze()
+                losses.append(metric_loss(
+                    X_train[i], pred, Y_train[i], metric_params=metric_params
+                ))
+            loss = torch.stack(losses).mean()
+            return loss
+
+        num_param = sum(p.numel() for p in self.predictor.parameters())
+        H = functorch.hessian(pred_loss)(pred_params, self.metric_params)
+        H = torch.cat(
+            [torch.cat([e.flatten() for e in Hpart]) for Hpart in H]
+        ).reshape(num_param, num_param)
+        g = functorch.grad(pred_loss)(pred_params, self.metric_params)
+        g = torch.cat([e.flatten() for e in g])
+        newton_update = g.unsqueeze(1).cholesky_solve(H).squeeze()
+
+        start_idx = 0
+        new_params = []
+        for p in pred_params:
+            n = p.numel()
+            update_p = newton_update[start_idx:start_idx+n].view_as(p)
+            new_params.append(p-update_p)
+
+        self.apply_pred = functools.partial(pred_func, new_params)
+
+
+    def forward(self, X, backprop=True):
+        # TODO: clean up and consider making more consistent
+        if not backprop:
+            return self.predictor(X)
+        else:
+            assert self.apply_pred is not None
+            return self.apply_pred(X)
+
+    def apply_metric(self, X):
+        metric_func, _ = functorch.make_functional(self.metric_def)
+        return metric_func(self.metric_params, X)
+
+    def get_metric_loss(self):
+        metric_func, _ = functorch.make_functional(self.metric_def)
+
+        def metric_loss(X, Yhats, Ys, metric_params=None):
+            if metric_params == None:
+                metric_params = self.metric_params
+            A = metric_func(metric_params, X).ravel()
+            return (A * (Yhats - Ys) ** 2).mean()
+        return metric_loss
+
+
+    def __getstate__(self):
+        d = copy.copy(self.__dict__)
+        del d["apply_pred"]
+        return d
+
+    def __setstate__(self, d):
+        self.__dict__ = d
 
 
 class DenseLoss(torch.nn.Module):

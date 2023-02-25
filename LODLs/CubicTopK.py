@@ -8,6 +8,9 @@ from torch.distributions import Normal, Bernoulli
 import random
 import pdb
 
+import matplotlib.pyplot as plt
+plt.style.use('bmh')
+
 
 class CubicTopK(PThenO):
     """The budget allocation predict-then-optimise problem from Wilder et. al. (2019)"""
@@ -71,7 +74,7 @@ class CubicTopK(PThenO):
         gamma = TopK_custom(self.budget)(-Y).squeeze()
         Z = gamma[...,0] * Y.shape[-1]
         return Z
-    
+
     def opt_test(self, Y):
         _, idxs = torch.topk(Y, self.budget)
         Z = torch.nn.functional.one_hot(idxs, Y.shape[-1])
@@ -79,15 +82,44 @@ class CubicTopK(PThenO):
 
     def get_decision(self, Y, isTrain=False, **kwargs):
         return self.opt_train(Y) if isTrain else self.opt_test(Y)
-    
+
     def get_modelio_shape(self):
         return 1, 1
 
     def get_output_activation(self):
         return None
-    
+
     def get_twostageloss(self):
         return 'mse'
+
+    def plot(self, loc, exp, show_grad=False):
+        x = torch.linspace(-1., 1., steps=100).cuda().unsqueeze(1)
+        y = 10 * (x.pow(3) - 0.65 * x).squeeze()
+
+        nrow, ncol = 2, 1
+        fig, axs = plt.subplots(nrow, ncol, figsize=(4*ncol, 2*nrow), #sharex=True,
+                                # gridspec_kw={'hspace': 1, 'wspace': 0},
+                                height_ratios=[2.5, 1])
+        ax = axs[0]
+        ax.plot(x.ravel().cpu(), y.ravel().cpu(), color='k', label='target')
+
+        y_pred = exp.model(x.to("cuda"), backprop=False).cpu().detach().numpy()
+        ax.plot(x.ravel().cpu(), y_pred.ravel(), label='prediction')
+        ax.set_xlabel('x')
+        ax.set_ylabel('y(x)')
+        ax.set_title('Model predictions')
+
+        ax = axs[1]
+        metric_preds = exp.model.apply_metric(x).cpu().detach().numpy()
+        ax.plot(x.ravel().cpu(), metric_preds, label='metric')
+        ax.set_xlabel('x')
+        ax.set_ylabel('A(x)')
+        ax.set_ylim(0., max(1., 1.1*metric_preds.max()))
+        ax.set_title('Learned metric')
+
+        fig.tight_layout()
+        fig.savefig(loc)
+        plt.close(fig)
 
 
 # Unit test for RandomTopK

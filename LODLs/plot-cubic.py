@@ -2,10 +2,13 @@
 
 import argparse
 
+import torch
 import os
 import sys
 import pickle as pkl
 import matplotlib.pyplot as plt
+
+from utils import move_to_gpu
 
 from IPython.core import ultratb
 
@@ -25,16 +28,17 @@ def main():
         exp = pkl.load(f)
     print("-- done")
 
-    # import ipdb; ipdb.set_trace()
-    X_test, Y_test, Y_test_aux = exp.problem.get_test_data()
+    if torch.cuda.is_available():
+        move_to_gpu(exp.problem)
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        exp.model = exp.model.to(device)
 
-    fig, ax = plt.subplots()
-    ax.scatter(X_test[0].ravel(), Y_test[0].ravel())
+    X_train, Y_train, Y_train_aux = exp.problem.get_train_data()
+    exp.model.update_predictor(X_train, Y_train, batchsize=1000, num_iters=1)
 
-    y_pred = exp.model(X_test[0].to("cuda")).cpu().detach().numpy()
-    ax.scatter(X_test[0].ravel(), y_pred.ravel())
+    loc = args.exp_root+"/latest.png"
+    exp.problem.plot(loc, exp, show_grad=True)
 
-    fig.savefig("t.png")
 
 
 if __name__ == "__main__":
