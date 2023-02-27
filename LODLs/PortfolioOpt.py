@@ -11,13 +11,15 @@ import itertools
 from cvxpylayers.torch import CvxpyLayer
 quandl.ApiConfig.api_key = '3Uxzq4TZV5V9RghuRYsY'
 
+import os
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 class PortfolioOpt(PThenO):
     """A class that implements the Portfolio Optimization problem from
     Wang, Kai, et al. "Automatically learning compact quality-aware surrogates
     for optimization problems." Advances in Neural Information Processing
     Systems 33 (2020): 9586-9596.
-    
+
     The code is largely adapted from: https://github.com/guaguakai/surrogate-optimization-learning/"""
 
     def __init__(
@@ -28,7 +30,7 @@ class PortfolioOpt(PThenO):
         val_frac=0.2,  # fraction of training data reserved for test
         rand_seed=0,  # for reproducibility
         alpha=1,  # risk aversion constant
-        data_dir="data",  # directory to store data
+        data_dir=SCRIPT_DIR+"/data",  # directory to store data
     ):
         super(PortfolioOpt, self).__init__()
         # Do some random seed fu
@@ -148,7 +150,7 @@ class PortfolioOpt(PThenO):
             price_feature_df.to_csv(self.price_feature_file)
 
         return price_feature_df
-    
+
     def _compute_monthly_cols(self, symbol_df):
         returns = symbol_df.Close.pct_change()
 
@@ -371,7 +373,7 @@ class PortfolioOpt(PThenO):
         quad_term = covar_mat_Z_t.square().sum(dim=-1)
         obj = (Y * Z).sum(dim=-1) - self.alpha * quad_term
         return obj
-    
+
     def get_output_activation(self):
         return 'tanh'
 

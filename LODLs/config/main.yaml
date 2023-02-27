@@ -1,65 +1,21 @@
 defaults:
-  - hydra/launcher: submitit_slurm
+  - _self_
+  - problem: cubic
+  - method: mse
+  - override hydra/launcher: submitit_slurm
 
-problem: cubic
 loadnew: False
-layers: 1
 iters: 5000
-earlystopping: True
-instances: 400
-testinstances: 400
-valfrac: 0.5
-valfreq: 100
+earlystopping: False
 patience: 100
+valfreq: 100
 seed: 0
-model: 'dense'
-# loss: 'mse'
-loss: 'metric'
+pred_model: 'dense'
 lr: 1e-4
 batchsize: 1
 
-num_inner_iters_init: 1001
-num_inner_iters: 1
-
-#   Domain-specific: BudgetAllocation or CubicTopK
-budget: 1
-numitems: 50
-
-#   Domain-specific: BudgetAllocation
-numtargets: 10
-fakefeatures: 0
-
-#   Domain-specific: RMAB
-rmabbudget: 1
-numarms: 5
-gamma: 0.9
-minlift: 0.2
-scramblinglayers: 3
-scramblingsize: 64
-numfeatures: 16
-noisestd: 0.5
-eval: 'exact'
-
-#   Domain-specific: BipartiteMatching
-nodes: 10
-
-#   Domain-specific: PortfolioOptimization
-stocks: 50
-stockalpha: 0.1
-
-#   Decision-Focused Learning
-dflalpha: 1.
-
-#   Learned-Loss
-serial: False
-sampling: 'random_hessian'
-numsamples: 50000
-samplingstd: 1.
-losslr: 0.01
-
-#       Approach-Specific: Quadratic
-quadrank: 20
-quadalpha: 0
+model_kwargs: {}
+loss_kwargs: {}
 
 hydra:
   run:

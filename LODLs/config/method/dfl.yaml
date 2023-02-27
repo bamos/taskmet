@@ -1,0 +1,6 @@
+# @package _global_
+
+loss: 'dfl'
+
+loss_kwargs:
+    dflalpha: 1.

@@ -18,7 +18,7 @@ def init_if_not_saved(
     # Find the filename if a saved version of the problem with the same kwargs exists
     master_filename = os.path.join(DIR, folder, f"{problem_cls.__name__}.csv")
     filename, saved_probs = find_saved_problem(master_filename, kwargs)
- 
+
     if not load_new and filename is not None:
         # Load the model
         with open(filename, 'rb') as file:
@@ -51,7 +51,7 @@ def find_saved_problem(
             saved_probs = pd.read_csv(file)
     else:
         saved_probs = pd.DataFrame(columns=('filename', *kwargs.keys(),))
-    
+
     # Check if the problem has been saved before
     relevant_models = saved_probs
     for col, val in kwargs.items():
@@ -62,7 +62,7 @@ def find_saved_problem(
     filename = None
     if not relevant_models.empty:
         filename = relevant_models['filename'].values[0]
-    
+
     return filename, saved_probs
 
 def print_metrics(
@@ -76,7 +76,7 @@ def print_metrics(
     # print(f"Current model parameters: {[param for param in model.parameters()]}")
     metrics = {}
     for Xs, Ys, Ys_aux, partition in datasets:
-        # Choose whether we should use train or test 
+        # Choose whether we should use train or test
         isTrain = (partition=='train') and (prefix != "Final")
 
         # Decision Quality
@@ -99,7 +99,7 @@ def print_metrics(
         objective = objectives.mean().item()
         loss = losses.mean().item()
         mae = torch.nn.L1Loss()(losses, -objectives).item()
-        print(f"{prefix} {partition} DQ: {objective}, Loss: {loss}, MAE: {mae}")
+        print(f"{prefix} {partition} DQ: {objective:.2f}, Loss: {loss:.2e}, MAE: {mae:.2f}")
         metrics[partition] = {'objective': objective, 'loss': loss, 'mae': mae}
 
     return metrics

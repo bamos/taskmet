@@ -169,6 +169,8 @@ class MetricModel(nn.Module):
 
         self.apply_pred = functools.partial(pred_func, new_params)
 
+    def parameters(self):
+        return self.metric_params
 
     def forward(self, X, backprop=True):
         # TODO: clean up and consider making more consistent

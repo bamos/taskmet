@@ -35,51 +35,37 @@ class Workspace:
 
         self.load_problem()
 
-        # Load an ML model to predict the parameters of the problem
-        print(f"Building {self.cfg.model} Model...")
         ipdim, opdim = self.problem.get_modelio_shape()
         if self.cfg.loss == "metric":
             model_builder = MetricModel
         else:
-            model_builder = model_dict[self.cfg.model]
+            model_builder = model_dict[self.cfg.pred_model]
         self.model = model_builder(
             num_features=ipdim,
             num_targets=opdim,
             num_layers=self.cfg.layers,
             intermediate_size=500,
             output_activation=self.problem.get_output_activation(),
+            **dict(self.cfg.model_kwargs),
         )
 
-        # TODO: Revert for non-metric
-        # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=cfg.lr)
-        self.optimizer = torch.optim.Adam(self.model.metric_params, lr=cfg.lr)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=cfg.lr)
 
     def run(self):
-        # Load a loss function to train the ML model on
-        #   TODO: Figure out loss function "type" for mypy type checking. Define class/interface?
-        print(f"Loading {self.cfg.loss} Loss Function...")
         loss_fn = get_loss_fn(
             self.cfg.loss if not isinstance(self.model, MetricModel) else "dfl",
             self.problem,
-            sampling=self.cfg.sampling,
-            num_samples=self.cfg.numsamples,
-            rank=self.cfg.quadrank,
-            sampling_std=self.cfg.samplingstd,
-            quadalpha=self.cfg.quadalpha,
-            lr=self.cfg.losslr,
-            serial=self.cfg.serial,
-            dflalpha=self.cfg.dflalpha,
+            **dict(self.cfg.loss_kwargs)
         )
 
-        # Train neural network with a given loss function
-        print(f"Training {self.cfg.model} model on {self.cfg.loss} loss...")
         #   Move everything to GPU, if available
         if torch.cuda.is_available():
             move_to_gpu(self.problem)
             device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             self.model = self.model.to(device)
 
-        self.problem.plot('latest.png', self)
+        if hasattr(self.problem, 'plot'):
+            self.problem.plot('latest.png', self)
 
         # Get data
         X_train, Y_train, Y_train_aux = self.problem.get_train_data()
@@ -87,8 +73,9 @@ class Workspace:
         X_test, Y_test, Y_test_aux = self.problem.get_test_data()
 
         # TODO Set batch sizes/num_iters/opts somewhere else?
-        self.model.update_predictor(
-            X_train, Y_train, num_iters=self.cfg.num_inner_iters_init)
+        if self.cfg.loss == "metric":
+            self.model.update_predictor(
+                X_train, Y_train, num_iters=self.cfg.num_inner_iters_init)
 
         best = (float("inf"), None)
         time_since_best = 0
@@ -98,8 +85,9 @@ class Workspace:
                 self.save()
 
                 # TODO: copy instead of re-plotting
-                self.problem.plot('latest.png', self)
-                self.problem.plot(f'vis_{iter_idx:05d}.png', self)
+                if hasattr(self.problem, 'plot'):
+                    self.problem.plot('latest.png', self)
+                    self.problem.plot(f'vis_{iter_idx:05d}.png', self)
 
 
                 # print(f'  metric weight value: {self.model.metric_params[0].item():.2f}')
@@ -121,6 +109,7 @@ class Workspace:
                 )
 
                 # Save model if it's the best one
+                assert not self.cfg.earlystopping # TODO
                 # if best[1] is None or metrics["val"]["loss"] < best[0]:
                 #     best = (metrics["val"]["loss"], deepcopy(self.model))
                 #     time_since_best = 0
@@ -152,9 +141,11 @@ class Workspace:
             time_since_best += 1
 
             # TODO Set batch sizes/num_iters/opts somewhere else?
-            self.model.update_predictor(
-                X_train, Y_train, num_iters=self.cfg.num_inner_iters)
+            if self.cfg.loss == "metric":
+                self.model.update_predictor(
+                    X_train, Y_train, num_iters=self.cfg.num_inner_iters)
 
+        assert not self.cfg.earlystopping # TODO
         # if self.cfg.earlystopping:
         #     self.model = best[1]
 
@@ -166,7 +157,7 @@ class Workspace:
             (X_val, Y_val, Y_val_aux, "val"),
             (X_test, Y_test, Y_test_aux, "test"),
         ]
-        print_metrics(
+        metrics = print_metrics(
             datasets, self.model, self.problem, self.cfg.loss, loss_fn, "Final"
         )
 
@@ -180,16 +171,24 @@ class Workspace:
                 Y_test, Z_test_rand, aux_data=Y_test_aux
             )
             objs_rand.append(objectives)
-        print(f"\nRandom Decision Quality: {torch.stack(objs_rand).mean().item()}")
+        random_dq = torch.stack(objs_rand).mean().item()
+        print(f"\nRandom Decision Quality: {random_dq:.2f} (normalized: 0)")
 
         #   Document the optimal value
         Z_test_opt = self.problem.get_decision(
             Y_test, aux_data=Y_test_aux, isTrain=False
         )
         objectives = self.problem.get_objective(Y_test, Z_test_opt, aux_data=Y_test_aux)
-        print(f"Optimal Decision Quality: {objectives.mean().item()}")
+        optimal_dq = objectives.mean().item()
+        print(f"Optimal Decision Quality: {optimal_dq:.2f} (normalized: 1)")
         print()
         self.save()
+
+        dq_range = optimal_dq - random_dq
+        test_dq = metrics['test']['objective']
+        normalized_test_dq = (test_dq - random_dq) / dq_range
+        print(f"Normalized Test Decision Quality: {normalized_test_dq:.2f}")
+
 
     def save(self, tag="latest"):
         path = os.path.join(self.work_dir, f"{tag}.pkl")
@@ -206,64 +205,7 @@ class Workspace:
         self.load_problem()
 
     def load_problem(self):
-        print(f"Loading {self.cfg.problem} Problem...")
         init_problem = partial(init_if_not_saved, load_new=self.cfg.loadnew)
-        if self.cfg.problem == "budgetalloc":
-            problem_kwargs = {
-                "num_train_instances": self.cfg.instances,
-                "num_test_instances": self.cfg.testinstances,
-                "num_targets": self.cfg.numtargets,
-                "num_items": self.cfg.numitems,
-                "budget": self.cfg.budget,
-                "num_fake_targets": self.cfg.fakefeatures,
-                "rand_seed": self.cfg.seed,
-                "val_frac": self.cfg.valfrac,
-            }
-            problem = init_problem(BudgetAllocation, problem_kwargs)
-        elif self.cfg.problem == "cubic":
-            problem_kwargs = {
-                "num_train_instances": self.cfg.instances,
-                "num_test_instances": self.cfg.testinstances,
-                "num_items": self.cfg.numitems,
-                "budget": self.cfg.budget,
-                "rand_seed": self.cfg.seed,
-                "val_frac": self.cfg.valfrac,
-            }
-            problem = init_problem(CubicTopK, problem_kwargs)
-        elif self.cfg.problem == "bipartitematching":
-            problem_kwargs = {
-                "num_train_instances": self.cfg.instances,
-                "num_test_instances": self.cfg.testinstances,
-                "num_nodes": self.cfg.nodes,
-                "val_frac": self.cfg.valfrac,
-                "rand_seed": self.cfg.seed,
-            }
-            problem = init_problem(BipartiteMatching, problem_kwargs)
-        elif self.cfg.problem == "rmab":
-            problem_kwargs = {
-                "num_train_instances": self.cfg.instances,
-                "num_test_instances": self.cfg.testinstances,
-                "num_arms": self.cfg.numarms,
-                "eval_method": self.cfg.eval,
-                "min_lift": self.cfg.minlift,
-                "budget": self.cfg.rmabbudget,
-                "gamma": self.cfg.gamma,
-                "num_features": self.cfg.numfeatures,
-                "num_intermediate": self.cfg.scramblingsize,
-                "num_layers": self.cfg.scramblinglayers,
-                "noise_std": self.cfg.noisestd,
-                "val_frac": self.cfg.valfrac,
-                "rand_seed": self.cfg.seed,
-            }
-            problem = init_problem(RMAB, problem_kwargs)
-        elif self.cfg.problem == "portfolio":
-            problem_kwargs = {
-                "num_train_instances": self.cfg.instances,
-                "num_test_instances": self.cfg.testinstances,
-                "num_stocks": self.cfg.stocks,
-                "alpha": self.cfg.stockalpha,
-                "val_frac": self.cfg.valfrac,
-                "rand_seed": self.cfg.seed,
-            }
-            problem = init_problem(PortfolioOpt, problem_kwargs)
-        self.problem = problem
+        problem_cls = hydra.utils._locate(self.cfg.problem_cls)
+        self.problem = init_problem(
+            problem_cls, dict(self.cfg.problem_kwargs))

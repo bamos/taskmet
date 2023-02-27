@@ -1,0 +1,12 @@
+loss: 'lodl'
+
+loss_kwargs:
+    serial: False
+    sampling: 'random_hessian'
+    numsamples: 50000
+    samplingstd: 1.
+    losslr: 0.01
+
+    #       Approach-Specific: Quadratic
+    quadrank: 20
+    quadalpha: 0

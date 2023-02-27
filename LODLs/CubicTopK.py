@@ -92,30 +92,35 @@ class CubicTopK(PThenO):
     def get_twostageloss(self):
         return 'mse'
 
-    def plot(self, loc, exp, show_grad=False):
+    def plot(self, loc, exp):
         x = torch.linspace(-1., 1., steps=100).cuda().unsqueeze(1)
         y = 10 * (x.pow(3) - 0.65 * x).squeeze()
 
-        nrow, ncol = 2, 1
-        fig, axs = plt.subplots(nrow, ncol, figsize=(4*ncol, 2*nrow), #sharex=True,
-                                # gridspec_kw={'hspace': 1, 'wspace': 0},
-                                height_ratios=[2.5, 1])
-        ax = axs[0]
+        if hasattr(exp.model, 'apply_metric'):
+            nrow, ncol = 2, 1
+            fig, axs = plt.subplots(
+                nrow, ncol, figsize=(4*ncol, 2*nrow),
+                height_ratios=[2.5, 1])
+            ax = axs[0]
+        else:
+            fig, ax = plt.subplots(figsize=(4, 2))
+
         ax.plot(x.ravel().cpu(), y.ravel().cpu(), color='k', label='target')
 
-        y_pred = exp.model(x.to("cuda"), backprop=False).cpu().detach().numpy()
+        y_pred = exp.model(x.to("cuda")).cpu().detach().numpy()
         ax.plot(x.ravel().cpu(), y_pred.ravel(), label='prediction')
         ax.set_xlabel('x')
         ax.set_ylabel('y(x)')
         ax.set_title('Model predictions')
 
-        ax = axs[1]
-        metric_preds = exp.model.apply_metric(x).cpu().detach().numpy()
-        ax.plot(x.ravel().cpu(), metric_preds, label='metric')
-        ax.set_xlabel('x')
-        ax.set_ylabel('A(x)')
-        ax.set_ylim(0., max(1., 1.1*metric_preds.max()))
-        ax.set_title('Learned metric')
+        if hasattr(exp.model, 'apply_metric'):
+            ax = axs[1]
+            metric_preds = exp.model.apply_metric(x).cpu().detach().numpy()
+            ax.plot(x.ravel().cpu(), metric_preds, label='metric')
+            ax.set_xlabel('x')
+            ax.set_ylabel('A(x)')
+            ax.set_ylim(0., max(1., 1.1*metric_preds.max()))
+            ax.set_title('Learned metric')
 
         fig.tight_layout()
         fig.savefig(loc)

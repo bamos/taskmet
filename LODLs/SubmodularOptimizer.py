@@ -62,7 +62,7 @@ class OptimiseSubmodular(torch.autograd.Function):
         coverage probabilities Yhat
         '''
         # Decision variables
-        Z = Z_init.detach().clone() if Z_init is not None else torch.rand(Yhat.shape[0]).detach()
+        Z = Z_init.detach().clone() if Z_init is not None else torch.rand(Yhat.shape[0], device=Yhat.device).detach()
 
         # Set up the optimizer
         Zprev = Z.clone().detach()
@@ -78,7 +78,7 @@ class OptimiseSubmodular(torch.autograd.Function):
             # Update estimate
             Zprev = Z
             Z = (Znew - lr * Znew.grad).detach()
-            Z.data = torch.from_numpy(OptimiseSubmodular._project(Z.data.numpy(), budget)).float()
+            Z.data = torch.from_numpy(OptimiseSubmodular._project(Z.data.cpu().numpy(), budget)).float().to(Z.device)
 
             # Benchmark performance
             if verbose:

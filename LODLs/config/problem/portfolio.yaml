@@ -1,0 +1,8 @@
+# @package _global_
+
+layers: 2
+
+problem_cls: PortfolioOpt.PortfolioOpt
+problem_kwargs:
+    num_stocks: 50
+    alpha: 0.1

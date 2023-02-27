@@ -5,6 +5,8 @@ import numpy as np
 from SubmodularOptimizer import SubmodularOptimizer
 import torch
 
+import os
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 class BudgetAllocation(PThenO):
     """The budget allocation predict-then-optimise problem from Wilder et. al. (2019)"""
@@ -69,7 +71,7 @@ class BudgetAllocation(PThenO):
         Loads the labels (Ys) of the prediction from a file, and returns a subset of it parameterised by instances.
         """
         # Load the dataset
-        with open('data/budget_allocation_data.pkl', 'rb') as f:
+        with open(SCRIPT_DIR+'/data/budget_allocation_data.pkl', 'rb') as f:
             Yfull, _ = pickle.load(f, encoding='bytes')
         Yfull = np.array(Yfull)
 
@@ -121,7 +123,7 @@ class BudgetAllocation(PThenO):
 
     def get_modelio_shape(self):
         return self.num_features, self.num_targets
-    
+
     def get_output_activation(self):
         return 'relu'
 
@@ -139,7 +141,7 @@ class BudgetAllocation(PThenO):
 
         # Initialise weights to default value
         if w is None:
-            w = torch.ones(Y.shape[-1]).requires_grad_(False)
+            w = torch.ones(Y.shape[-1], device=Y.device).requires_grad_(False)
         else:
             assert Y.shape[-1] == w.shape[0]
             assert len(w.shape) == 1
