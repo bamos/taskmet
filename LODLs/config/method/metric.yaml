@@ -3,5 +3,11 @@
 loss: 'metric'
 
 model_kwargs:
-    num_inner_iters_init: 1001
-    num_inner_iters: 1
+    prediction_batchsize: 1
+    implicit_diff_batchsize: 100
+    implicit_diff_mode: torchopt_exact
+    # implicit_diff_mode: exact
+
+# TODO: move
+num_inner_iters_init: 1001
+num_inner_iters: 1

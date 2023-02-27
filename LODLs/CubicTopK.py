@@ -96,7 +96,7 @@ class CubicTopK(PThenO):
         x = torch.linspace(-1., 1., steps=100).cuda().unsqueeze(1)
         y = 10 * (x.pow(3) - 0.65 * x).squeeze()
 
-        if hasattr(exp.model, 'apply_metric'):
+        if hasattr(exp.model, 'metric_forward'):
             nrow, ncol = 2, 1
             fig, axs = plt.subplots(
                 nrow, ncol, figsize=(4*ncol, 2*nrow),
@@ -113,9 +113,9 @@ class CubicTopK(PThenO):
         ax.set_ylabel('y(x)')
         ax.set_title('Model predictions')
 
-        if hasattr(exp.model, 'apply_metric'):
+        if hasattr(exp.model, 'metric_forward'):
             ax = axs[1]
-            metric_preds = exp.model.apply_metric(x).cpu().detach().numpy()
+            metric_preds = exp.model.metric_forward(x).cpu().detach().numpy()
             ax.plot(x.ravel().cpu(), metric_preds, label='metric')
             ax.set_xlabel('x')
             ax.set_ylabel('A(x)')

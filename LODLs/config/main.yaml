@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - problem: cubic
-  - method: mse
+  - method: metric
   - override hydra/launcher: submitit_slurm
 
 loadnew: False

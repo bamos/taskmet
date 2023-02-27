@@ -9,6 +9,7 @@ import operator
 import pdb
 import random
 import functools
+import torchopt
 
 from utils import View
 
@@ -82,13 +83,17 @@ class MetricNN(nn.Module):
 
 class MetricModel(nn.Module):
     def __init__(
-        self,
-        num_features,
-        num_targets,
-        num_layers,
-        intermediate_size=10,
-        activation="relu",
-        output_activation="sigmoid",
+            self,
+            num_features,
+            num_targets,
+            num_layers,
+            intermediate_size=10,
+            activation="relu",
+            output_activation="sigmoid",
+            prediction_batchsize=1,
+            implicit_diff_batchsize=100,
+            predictor_lr=1e-3,
+            implicit_diff_mode='exact'
     ):
         super(MetricModel, self).__init__()
         self.predictor = dense_nn(
@@ -99,31 +104,88 @@ class MetricModel(nn.Module):
             activation=activation,
             output_activation=output_activation,
         )
+        self.prediction_batchsize = prediction_batchsize
+        self.implicit_diff_batchsize = implicit_diff_batchsize
+        self.implicit_diff_mode = implicit_diff_mode
 
-        # TODO: decide on best way of handling the metric's params
         self.metric_def = MetricNN().cuda()
-        # self.metric_def = nn.Sequential(
-        #     nn.Linear(num_features, 1, bias=False), nn.Softplus()
-        # ).cuda()
         metric_func, self.metric_params = functorch.make_functional(
             self.metric_def)
 
-        # TODO: make output dimension of metric generalizable
-        # TODO: initialize metric to be identity
         self.predictor_optimizer = torch.optim.Adam(
-            self.predictor.parameters(), lr=1e-3
+            self.predictor.parameters(), lr=predictor_lr,
         )
+        self.pred_forward = self.predictor.forward
 
-    def update_predictor(self, X_train, Y_train, prediction_batchsize=1, implicit_diff_batchsize=100,  num_iters=1001):
+
+    def make_predictor_differentiable(self, X_train, Y_train):
+        # Assume we have the optimal predictor. Make the predictions
+        # differentiable w.r.t. the metric with the IFT by applying
+        # a Newton update to the predictor's parameters.
+        metric_loss = self.get_metric_loss()
+
+        num_param_pred = sum(p.numel() for p in self.predictor.parameters())
+        pred_func, pred_params = functorch.make_functional(self.predictor)
+
+        def pred_loss(pred_params, metric_params):
+            losses = []
+            num_samples = min(self.implicit_diff_batchsize, len(X_train))
+            for i in random.sample(range(len(X_train)), num_samples):
+                pred = pred_func(pred_params, X_train[i]).squeeze()
+                losses.append(metric_loss(
+                    X_train[i], pred, Y_train[i], metric_params=metric_params
+                ))
+            loss = torch.stack(losses).mean()
+            return loss
+
+        if self.implicit_diff_mode == 'exact':
+            H = functorch.hessian(pred_loss)(pred_params, self.metric_params)
+            H = torch.cat(
+                [torch.cat([e.flatten() for e in Hpart]) for Hpart in H]
+            ).reshape(num_param_pred, num_param_pred)
+            g = functorch.grad(pred_loss)(pred_params, self.metric_params)
+            g = torch.cat([e.flatten() for e in g])
+            newton_update = g.unsqueeze(1).cholesky_solve(H).squeeze()
+
+            start_idx = 0
+            new_params = []
+            for p in pred_params:
+                n = p.numel()
+                update_p = newton_update[start_idx:start_idx+n].view_as(p)
+                new_params.append(p-update_p)
+        elif self.implicit_diff_mode.startswith('torchopt'):
+            # TODO: Move?
+            solver_mode = self.implicit_diff_mode[9:]
+            if solver_mode == 'exact':
+                solver = torchopt.linear_solve.solve_inv()
+            elif solver_mode == 'cg':
+                solver = torchopt.linear_solve.solve_cg(maxiter=5, atol=0)
+            else:
+                assert False
+
+            @torchopt.diff.implicit.custom_root(
+                functorch.grad(pred_loss, argnums=0),
+                argnums=1,
+                solve=solver,
+            )
+            def solve(pred_params, metric_params):
+                return pred_params
+            new_params = solve(pred_params, self.metric_params)
+        else:
+            assert False
+
+        self.pred_forward = functools.partial(pred_func, new_params)
+
+    def update_predictor(self, X_train, Y_train, num_iters=1001):
         # Fit the predictor to the data with the current metric loss
         metric_loss = self.get_metric_loss()
 
         # print('-- updating predictor')
         for train_iter in range(num_iters):
             losses = []
-            for i in random.sample(range(len(X_train)), min(prediction_batchsize, len(X_train))):
+            num_samples = min(self.prediction_batchsize, len(X_train))
+            for i in random.sample(range(len(X_train)), num_samples):
                 pred = self.predictor(X_train[i]).squeeze()
-
                 losses.append(metric_loss(X_train[i], pred, Y_train[i]))
             loss = torch.stack(losses).mean()
             self.predictor_optimizer.zero_grad()
@@ -133,54 +195,15 @@ class MetricModel(nn.Module):
             # if train_iter == 0 or train_iter % 10 == 0:
                 # print(f'inner iter {train_iter} loss: {loss.item():.2e}')
 
-
-        # Assume we have the optimal predictor. Make the predictions
-        # differentiable w.r.t. the metric with the IFT by applying
-        # a Newton update to the predictor's parameters.
-        # TODO: Clean up, move somewhere else, check for efficiency, and
-        # add other implicit diff modes?
-        pred_func, pred_params = functorch.make_functional(self.predictor)
-
-        def pred_loss(pred_params, metric_params):
-            losses = []
-            for i in random.sample(range(len(X_train)), min(implicit_diff_batchsize, len(X_train))):
-                pred = pred_func(pred_params, X_train[i]).squeeze()
-                losses.append(metric_loss(
-                    X_train[i], pred, Y_train[i], metric_params=metric_params
-                ))
-            loss = torch.stack(losses).mean()
-            return loss
-
-        num_param = sum(p.numel() for p in self.predictor.parameters())
-        H = functorch.hessian(pred_loss)(pred_params, self.metric_params)
-        H = torch.cat(
-            [torch.cat([e.flatten() for e in Hpart]) for Hpart in H]
-        ).reshape(num_param, num_param)
-        g = functorch.grad(pred_loss)(pred_params, self.metric_params)
-        g = torch.cat([e.flatten() for e in g])
-        newton_update = g.unsqueeze(1).cholesky_solve(H).squeeze()
-
-        start_idx = 0
-        new_params = []
-        for p in pred_params:
-            n = p.numel()
-            update_p = newton_update[start_idx:start_idx+n].view_as(p)
-            new_params.append(p-update_p)
-
-        self.apply_pred = functools.partial(pred_func, new_params)
+        self.make_predictor_differentiable(X_train, Y_train)
 
     def parameters(self):
         return self.metric_params
 
-    def forward(self, X, backprop=True):
-        # TODO: clean up and consider making more consistent
-        if not backprop:
-            return self.predictor(X)
-        else:
-            assert self.apply_pred is not None
-            return self.apply_pred(X)
+    def forward(self, X):
+        return self.pred_forward(X)
 
-    def apply_metric(self, X):
+    def metric_forward(self, X):
         metric_func, _ = functorch.make_functional(self.metric_def)
         return metric_func(self.metric_params, X)
 
@@ -197,11 +220,12 @@ class MetricModel(nn.Module):
 
     def __getstate__(self):
         d = copy.copy(self.__dict__)
-        del d["apply_pred"]
+        del d["pred_forward"]
         return d
 
     def __setstate__(self, d):
         self.__dict__ = d
+        self.pred_forward = self.predictor.forward
 
 
 class DenseLoss(torch.nn.Module):
