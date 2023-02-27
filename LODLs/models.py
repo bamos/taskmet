@@ -111,6 +111,7 @@ class MetricModel(nn.Module):
         self.implicit_diff_batchsize = implicit_diff_batchsize
         self.implicit_diff_mode = implicit_diff_mode
 
+        # TODO: add aux_data, e.g., Q?
         self.metric_def = MetricNN(num_features, num_targets).cuda()
         metric_func, self.metric_params = functorch.make_functional(
             self.metric_def)
