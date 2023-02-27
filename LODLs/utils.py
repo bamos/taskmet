@@ -99,7 +99,7 @@ def print_metrics(
         objective = objectives.mean().item()
         loss = losses.mean().item()
         mae = torch.nn.L1Loss()(losses, -objectives).item()
-        print(f"{prefix} {partition} DQ: {objective:.2f}, Loss: {loss:.2e}, MAE: {mae:.2f}")
+        print(f"{prefix} {partition} DQ: {objective:.2e}, Loss: {loss:.2e}, MAE: {mae:.2f}")
         metrics[partition] = {'objective': objective, 'loss': loss, 'mae': mae}
 
     return metrics

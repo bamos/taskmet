@@ -11,7 +11,7 @@ patience: 100
 valfreq: 100
 seed: 0
 pred_model: 'dense'
-lr: 1e-4
+lr: 0.01
 batchsize: 1
 
 model_kwargs: {}
