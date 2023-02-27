@@ -67,16 +67,19 @@ def dense_nn(
 
 
 class MetricNN(nn.Module):
-    def __init__(self):
+    def __init__(self, num_features, num_output):
         super().__init__()
         self.base = nn.Sequential(
-            nn.Linear(1, 100),
+            nn.Linear(num_features, 100),
             nn.ReLU(),
-            nn.Linear(100, 1)
+            nn.Linear(100, num_output*num_output)
         )
 
     def forward(self, x):
         A = torch.nn.functional.softplus(self.base(x))
+        # L = self.base(x)
+        # A = L
+        # import ipdb; ipdb.set_trace()
         # TODO: extend for PSD matrices with bounds from the
         # identity metric
         return A
@@ -108,7 +111,7 @@ class MetricModel(nn.Module):
         self.implicit_diff_batchsize = implicit_diff_batchsize
         self.implicit_diff_mode = implicit_diff_mode
 
-        self.metric_def = MetricNN().cuda()
+        self.metric_def = MetricNN(num_features, num_targets).cuda()
         metric_func, self.metric_params = functorch.make_functional(
             self.metric_def)
 
