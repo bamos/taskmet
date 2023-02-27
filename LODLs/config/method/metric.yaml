@@ -5,7 +5,7 @@ loss: 'metric'
 model_kwargs:
     prediction_batchsize: 1
     implicit_diff_batchsize: 100
-    implicit_diff_mode: torchopt_exact
+    implicit_diff_mode: torchopt_cg
     # implicit_diff_mode: exact
 
 # TODO: move
