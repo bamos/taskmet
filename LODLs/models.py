@@ -72,11 +72,17 @@ class MetricNN(nn.Module):
         self.base = nn.Sequential(
             nn.Linear(num_features, 100),
             nn.ReLU(),
-            nn.Linear(100, num_output*num_output)
+            nn.Linear(100, num_output * num_output),
         )
+        self.num_output = num_output
 
     def forward(self, x):
-        A = torch.nn.functional.softplus(self.base(x))
+        # A = torch.nn.functional.softplus(self.base(x))
+        L = self.base(x)
+        L = L.view(L.shape[0], self.num_output, self.num_output)
+        A = torch.bmm(L, L.transpose(1, 2)) + 1e-6 * torch.eye(self.num_output).to(
+            x.device
+        )
         # L = self.base(x)
         # A = L
         # import ipdb; ipdb.set_trace()
@@ -84,19 +90,20 @@ class MetricNN(nn.Module):
         # identity metric
         return A
 
+
 class MetricModel(nn.Module):
     def __init__(
-            self,
-            num_features,
-            num_targets,
-            num_layers,
-            intermediate_size=10,
-            activation="relu",
-            output_activation="sigmoid",
-            prediction_batchsize=1,
-            implicit_diff_batchsize=100,
-            predictor_lr=1e-3,
-            implicit_diff_mode='exact'
+        self,
+        num_features,
+        num_targets,
+        num_layers,
+        intermediate_size=10,
+        activation="relu",
+        output_activation="sigmoid",
+        prediction_batchsize=1,
+        implicit_diff_batchsize=100,
+        predictor_lr=1e-3,
+        implicit_diff_mode="exact",
     ):
         super(MetricModel, self).__init__()
         self.predictor = dense_nn(
@@ -113,14 +120,13 @@ class MetricModel(nn.Module):
 
         # TODO: add aux_data, e.g., Q?
         self.metric_def = MetricNN(num_features, num_targets).cuda()
-        metric_func, self.metric_params = functorch.make_functional(
-            self.metric_def)
+        metric_func, self.metric_params = functorch.make_functional(self.metric_def)
 
         self.predictor_optimizer = torch.optim.Adam(
-            self.predictor.parameters(), lr=predictor_lr,
+            self.predictor.parameters(),
+            lr=predictor_lr,
         )
         self.pred_forward = self.predictor.forward
-
 
     def make_predictor_differentiable(self, X_train, Y_train):
         # Assume we have the optimal predictor. Make the predictions
@@ -136,13 +142,15 @@ class MetricModel(nn.Module):
             num_samples = min(self.implicit_diff_batchsize, len(X_train))
             for i in random.sample(range(len(X_train)), num_samples):
                 pred = pred_func(pred_params, X_train[i]).squeeze()
-                losses.append(metric_loss(
-                    X_train[i], pred, Y_train[i], metric_params=metric_params
-                ))
+                losses.append(
+                    metric_loss(
+                        X_train[i], pred, Y_train[i], metric_params=metric_params
+                    )
+                )
             loss = torch.stack(losses).mean()
             return loss
 
-        if self.implicit_diff_mode == 'exact':
+        if self.implicit_diff_mode == "exact":
             H = functorch.hessian(pred_loss)(pred_params, self.metric_params)
             H = torch.cat(
                 [torch.cat([e.flatten() for e in Hpart]) for Hpart in H]
@@ -155,14 +163,14 @@ class MetricModel(nn.Module):
             new_params = []
             for p in pred_params:
                 n = p.numel()
-                update_p = newton_update[start_idx:start_idx+n].view_as(p)
-                new_params.append(p-update_p)
-        elif self.implicit_diff_mode.startswith('torchopt'):
+                update_p = newton_update[start_idx : start_idx + n].view_as(p)
+                new_params.append(p - update_p)
+        elif self.implicit_diff_mode.startswith("torchopt"):
             # TODO: Move?
             solver_mode = self.implicit_diff_mode[9:]
-            if solver_mode == 'exact':
+            if solver_mode == "exact":
                 solver = torchopt.linear_solve.solve_inv()
-            elif solver_mode == 'cg':
+            elif solver_mode == "cg":
                 solver = torchopt.linear_solve.solve_cg(maxiter=5, atol=0)
             else:
                 assert False
@@ -174,6 +182,7 @@ class MetricModel(nn.Module):
             )
             def solve(pred_params, metric_params):
                 return pred_params
+
             new_params = solve(pred_params, self.metric_params)
         else:
             assert False
@@ -197,7 +206,7 @@ class MetricModel(nn.Module):
             self.predictor_optimizer.step()
 
             # if train_iter == 0 or train_iter % 10 == 0:
-                # print(f'inner iter {train_iter} loss: {loss.item():.2e}')
+            #     print(f'inner iter {train_iter} loss: {loss.item():.2e}')
 
         self.make_predictor_differentiable(X_train, Y_train)
 
@@ -217,10 +226,14 @@ class MetricModel(nn.Module):
         def metric_loss(X, Yhats, Ys, metric_params=None):
             if metric_params == None:
                 metric_params = self.metric_params
-            A = metric_func(metric_params, X).ravel()
-            return (A * (Yhats - Ys) ** 2).mean()
-        return metric_loss
+            # A = metric_func(metric_params, X).ravel()
+            A = metric_func(metric_params, X)
+            err = (Yhats - Ys).view(A.shape[0], A.shape[1], 1)
+            # print(A.shape, err.shape)
+            return (err.transpose(1, 2) @ A @ err).mean()
+            # return (A * (Yhats - Ys) ** 2).mean()
 
+        return metric_loss
 
     def __getstate__(self):
         d = copy.copy(self.__dict__)

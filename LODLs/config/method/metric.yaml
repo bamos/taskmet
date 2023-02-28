@@ -9,5 +9,5 @@ model_kwargs:
     predictor_lr: 0.01
     # implicit_diff_mode: exact
 
-num_inner_iters_init: 1001
-num_inner_iters: 1
+num_inner_iters_init: 5000
+num_inner_iters: 100

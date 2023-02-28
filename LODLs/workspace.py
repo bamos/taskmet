@@ -55,7 +55,7 @@ class Workspace:
         loss_fn = get_loss_fn(
             self.cfg.loss if not isinstance(self.model, MetricModel) else "dfl",
             self.problem,
-            **dict(self.cfg.loss_kwargs)
+            **dict(self.cfg.loss_kwargs),
         )
 
         #   Move everything to GPU, if available
@@ -64,8 +64,8 @@ class Workspace:
             device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             self.model = self.model.to(device)
 
-        if hasattr(self.problem, 'plot'):
-            self.problem.plot('latest.png', self)
+        if hasattr(self.problem, "plot"):
+            self.problem.plot("latest.png", self)
 
         # Get data
         X_train, Y_train, Y_train_aux = self.problem.get_train_data()
@@ -75,7 +75,8 @@ class Workspace:
         # TODO Set batch sizes/num_iters/opts somewhere else?
         if self.cfg.loss == "metric":
             self.model.update_predictor(
-                X_train, Y_train, num_iters=self.cfg.num_inner_iters_init)
+                X_train, Y_train, num_iters=self.cfg.num_inner_iters_init
+            )
 
         best = (float("inf"), None)
         time_since_best = 0
@@ -85,14 +86,12 @@ class Workspace:
                 self.save()
 
                 # TODO: copy instead of re-plotting
-                if hasattr(self.problem, 'plot'):
-                    self.problem.plot('latest.png', self)
-                    self.problem.plot(f'vis_{iter_idx:05d}.png', self)
-
+                if hasattr(self.problem, "plot"):
+                    self.problem.plot("latest.png", self)
+                    self.problem.plot(f"vis_{iter_idx:05d}.png", self)
 
                 # print(f'  metric weight value: {self.model.metric_params[0].item():.2f}')
                 # print(f'  metric weight grad: {self.model.metric_params[0].grad.item():.2f}')
-
 
                 # Compute metrics
                 datasets = [
@@ -109,7 +108,7 @@ class Workspace:
                 )
 
                 # Save model if it's the best one
-                assert not self.cfg.earlystopping # TODO
+                assert not self.cfg.earlystopping  # TODO
                 # if best[1] is None or metrics["val"]["loss"] < best[0]:
                 #     best = (metrics["val"]["loss"], deepcopy(self.model))
                 #     time_since_best = 0
@@ -143,9 +142,10 @@ class Workspace:
             # TODO Set batch sizes/num_iters/opts somewhere else?
             if self.cfg.loss == "metric":
                 self.model.update_predictor(
-                    X_train, Y_train, num_iters=self.cfg.num_inner_iters)
+                    X_train, Y_train, num_iters=self.cfg.num_inner_iters
+                )
 
-        assert not self.cfg.earlystopping # TODO
+        assert not self.cfg.earlystopping  # TODO
         # if self.cfg.earlystopping:
         #     self.model = best[1]
 
@@ -185,10 +185,9 @@ class Workspace:
         self.save()
 
         dq_range = optimal_dq - random_dq
-        test_dq = metrics['test']['objective']
+        test_dq = metrics["test"]["objective"]
         normalized_test_dq = (test_dq - random_dq) / dq_range
         print(f"Normalized Test Decision Quality: {normalized_test_dq:.2f}")
-
 
     def save(self, tag="latest"):
         path = os.path.join(self.work_dir, f"{tag}.pkl")
@@ -207,5 +206,4 @@ class Workspace:
     def load_problem(self):
         init_problem = partial(init_if_not_saved, load_new=self.cfg.loadnew)
         problem_cls = hydra.utils._locate(self.cfg.problem_cls)
-        self.problem = init_problem(
-            problem_cls, dict(self.cfg.problem_kwargs))
+        self.problem = init_problem(problem_cls, dict(self.cfg.problem_kwargs))
