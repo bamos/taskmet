@@ -6,7 +6,6 @@ defaults:
 
 loadnew: False
 iters: 5000
-earlystopping: False
 patience: 100
 valfreq: 100
 seed: 0

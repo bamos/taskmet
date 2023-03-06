@@ -8,6 +8,7 @@ import argparse
 import ast
 import torch
 import random
+import json
 import pdb
 import matplotlib.pyplot as plt
 from copy import deepcopy, copy
@@ -50,6 +51,8 @@ class Workspace:
         )
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=cfg.lr)
+        self.train_iter = 0
+        self.best_val_loss = float('inf')
 
     def run(self):
         loss_fn = get_loss_fn(
@@ -78,17 +81,15 @@ class Workspace:
                 X_train, Y_train, num_iters=self.cfg.num_inner_iters_init
             )
 
-        best = (float("inf"), None)
-        time_since_best = 0
-        for iter_idx in range(self.cfg.iters):
+        while self.train_iter < self.cfg.iters:
             # Check metrics on val set
-            if iter_idx % self.cfg.valfreq == 0:
+            if self.train_iter % self.cfg.valfreq == 0:
                 self.save()
 
                 # TODO: copy instead of re-plotting
                 if hasattr(self.problem, "plot"):
                     self.problem.plot("latest.png", self)
-                    self.problem.plot(f"vis_{iter_idx:05d}.png", self)
+                    self.problem.plot(f"vis_{self.train_iter:05d}.png", self)
 
                 # print(f'  metric weight value: {self.model.metric_params[0].item():.2f}')
                 # print(f'  metric weight grad: {self.model.metric_params[0].grad.item():.2f}')
@@ -104,18 +105,13 @@ class Workspace:
                     self.problem,
                     self.cfg.loss,
                     loss_fn,
-                    f"Iter {iter_idx},",
+                    f"Iter {self.train_iter},",
                 )
 
                 # Save model if it's the best one
-                assert not self.cfg.earlystopping  # TODO
-                # if best[1] is None or metrics["val"]["loss"] < best[0]:
-                #     best = (metrics["val"]["loss"], deepcopy(self.model))
-                #     time_since_best = 0
-
-                # Stop if model hasn't improved for patience steps
-                # if self.cfg.earlystopping and time_since_best > self.cfg.patience:
-                #     break
+                if metrics["val"]["loss"] < self.best_val_loss:
+                    self.save('best')
+                    self.best_val_loss = metrics["val"]["loss"]
 
             # Learn
             losses = []
@@ -137,20 +133,37 @@ class Workspace:
             loss.backward()
 
             self.optimizer.step()
-            time_since_best += 1
 
             # TODO Set batch sizes/num_iters/opts somewhere else?
             if self.cfg.loss == "metric":
                 self.model.update_predictor(
                     X_train, Y_train, num_iters=self.cfg.num_inner_iters
                 )
+            self.train_iter += 1
 
-        assert not self.cfg.earlystopping  # TODO
-        # if self.cfg.earlystopping:
-        #     self.model = best[1]
+        self.save()
 
+    def test(self):
         # Document how well this trained model does
         print("\nBenchmarking Model...")
+
+        loss_fn = get_loss_fn(
+            self.cfg.loss if not isinstance(self.model, MetricModel) else "dfl",
+            self.problem,
+            **dict(self.cfg.loss_kwargs),
+        )
+
+        #   Move everything to GPU, if available
+        if torch.cuda.is_available():
+            move_to_gpu(self.problem)
+            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            self.model = self.model.to(device)
+
+
+        X_train, Y_train, Y_train_aux = self.problem.get_train_data()
+        X_val, Y_val, Y_val_aux = self.problem.get_val_data()
+        X_test, Y_test, Y_test_aux = self.problem.get_test_data()
+
         # Print final metrics
         datasets = [
             (X_train, Y_train, Y_train_aux, "train"),
@@ -188,6 +201,18 @@ class Workspace:
         test_dq = metrics["test"]["objective"]
         normalized_test_dq = (test_dq - random_dq) / dq_range
         print(f"Normalized Test Decision Quality: {normalized_test_dq:.2f}")
+
+        test_stats = {
+            'random_dq_unnorm': random_dq,
+            'optimal_dq_unnorm': optimal_dq,
+            'test_dq_unnorm': test_dq,
+            'test_dq_norm': normalized_test_dq,
+        }
+
+        fname = 'test_stats.json'
+        print(f'writing to {fname}')
+        with open(fname, 'w') as f:
+            json.dump(test_stats, f)
 
     def save(self, tag="latest"):
         path = os.path.join(self.work_dir, f"{tag}.pkl")
