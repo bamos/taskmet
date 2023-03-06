@@ -115,7 +115,7 @@ class CubicTopK(PThenO):
 
         if hasattr(exp.model, 'metric_forward'):
             ax = axs[1]
-            metric_preds = exp.model.metric_forward(x).cpu().detach().numpy()
+            metric_preds = exp.model.metric_forward(x).cpu().detach().numpy().ravel()
             ax.plot(x.ravel().cpu(), metric_preds, label='metric')
             ax.set_xlabel('x')
             ax.set_ylabel('A(x)')
