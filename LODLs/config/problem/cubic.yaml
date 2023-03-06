@@ -8,5 +8,9 @@ problem_kwargs:
     num_test_instances: 400
     num_items: 50
     budget: 1
-    rand_seed: ${seed}
+    rand_seed: ${dataset_seed}
     val_frac: 0.5
+
+pred_lr: 0.1
+metric_lr: 0.01
+batchsize: 1

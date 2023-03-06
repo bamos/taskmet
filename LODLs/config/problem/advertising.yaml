@@ -11,4 +11,8 @@ problem_kwargs:
     num_items: 5
     num_targets: 10
     num_fake_targets: 0
-    rand_seed: ${seed}
+    rand_seed: ${dataset_seed}
+
+pred_lr: 1e-4
+metric_lr: 0.01
+batchsize: 100

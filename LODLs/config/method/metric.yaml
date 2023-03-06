@@ -6,7 +6,7 @@ model_kwargs:
     prediction_batchsize: 1
     implicit_diff_batchsize: 100
     implicit_diff_mode: torchopt_cg
-    predictor_lr: 0.01
+    predictor_lr: ${pred_lr}
     # implicit_diff_mode: exact
 
 num_inner_iters_init: 5000

@@ -39,8 +39,10 @@ class Workspace:
         ipdim, opdim = self.problem.get_modelio_shape()
         if self.cfg.loss == "metric":
             model_builder = MetricModel
+            lr = cfg.metric_lr
         else:
             model_builder = model_dict[self.cfg.pred_model]
+            lr = cfg.pred_lr
         self.model = model_builder(
             num_features=ipdim,
             num_targets=opdim,
@@ -50,7 +52,7 @@ class Workspace:
             **dict(self.cfg.model_kwargs),
         )
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=cfg.lr)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         self.train_iter = 0
         self.best_val_loss = float('inf')
 

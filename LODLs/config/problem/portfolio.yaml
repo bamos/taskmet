@@ -9,4 +9,8 @@ problem_kwargs:
     num_train_instances: 400
     num_test_instances: 400
     val_frac: 0.5
-    rand_seed: ${seed}
+    rand_seed: ${dataset_seed}
+
+pred_lr: 0.01
+metric_lr: 0.01
+batchsize: 100

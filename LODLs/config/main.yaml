@@ -1,7 +1,7 @@
 defaults:
   - _self_
-  - problem: cubic
   - method: metric
+  - problem: cubic
   - override hydra/launcher: submitit_slurm
 
 loadnew: False
@@ -9,9 +9,12 @@ iters: 5000
 patience: 100
 valfreq: 100
 seed: 0
+dataset_seed: 0
 pred_model: 'dense'
-lr: 0.01
-batchsize: 1
+
+batchsize: ??
+pred_lr: ??
+model_lr: ??
 
 model_kwargs: {}
 loss_kwargs: {}
@@ -27,6 +30,6 @@ hydra:
   launcher:
     max_num_timeout: 100000
     timeout_min: 4319
-    partition: devlab
+    partition: learnlab
     mem_gb: 64
     gpus_per_node: 1
