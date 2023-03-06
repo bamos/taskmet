@@ -59,6 +59,7 @@ df = df.apply(pd.to_numeric, errors='ignore')
 print(df)
 
 print('== mean test DQ')
-print(df.groupby('problem')['test_dq_norm'].agg(['mean', 'std']))
+print(df.groupby(['problem', 'method'])['test_dq_norm'].agg(['mean', 'std']))
+# print(df.groupby('problem')['test_dq_norm'].agg(['mean', 'std']))
 
 import ipdb; ipdb.set_trace()
