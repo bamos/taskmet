@@ -100,7 +100,7 @@ class ScheduleBattery(nn.Module):
         Ae = self.Ae.unsqueeze(0).expand(nBatch, self.Ae.size(0), self.Ae.size(1))
         be = self.be.unsqueeze(0).expand(nBatch, self.be.size(0))
                 
-        out = QPFunction(verbose=True)\
+        out = QPFunction(verbose=-1)\
             (Q.double(), c.double(), A.double(), b.double(), Ae.double(), be.double())
         
         return out

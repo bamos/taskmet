@@ -66,7 +66,7 @@ def main():
         tensors_task = get_train_hold_split(input_tensors, 0.8, save_folder)
         loaders_task = get_loaders_tth(tensors_task, bsz)
 
-        # Run and eval rmse-minimizing net
+        print('Run and eval rmse-minimizing net')
         model_rmse = model_classes.Net(
             tensors_task['X_train'], tensors_task['Y_train'], [200, 200], params['T'])
         if USE_GPU:
@@ -74,7 +74,7 @@ def main():
         model_rmse = nets.run_rmse_net(model_rmse, loaders_task, params, tensors_task)
         nets.eval_net('rmse_net', model_rmse, loaders_task, params, save_folder)
 
-        # Run and eval task-minimizing net
+        print('Run and eval task-minimizing net')
         model_task = model_classes.Net(
             tensors_task['X_train'], tensors_task['Y_train'], [200, 200], params['T'])
         if USE_GPU:
