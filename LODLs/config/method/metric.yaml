@@ -16,7 +16,7 @@ model_kwargs:
     metric_kwargs:
       num_hidden: 100
       identity_init: True
-      identity_init_scale: 10.
+      identity_init_scale: 100.
 
 num_inner_iters_init: 5000
 num_inner_iters: 50

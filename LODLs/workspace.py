@@ -93,6 +93,8 @@ class Workspace:
             self.model.update_predictor(
                 X_train, Y_train, num_iters=self.cfg.num_inner_iters_init
             )
+            self.save()
+            self.save("best")
 
         while self.train_iter < self.cfg.iters:
             # Check metrics on val set
