@@ -84,8 +84,8 @@ def main():
             nets.run_task_net(model_task, loaders_task, params, args, tensors_task)
         nets.eval_net('task_net', model_task, loaders_task, params, save_folder)
 
-    calc_stats.calc_stats(map(
-        lambda x: os.path.join(save_folder_main, str(x)), range(args.nRuns)), save_folder_main)
+        calc_stats.calc_stats(map(
+            lambda x: os.path.join(save_folder_main, str(x)), range(args.nRuns)), save_folder_main)
 
 
 def init_params(param_set):

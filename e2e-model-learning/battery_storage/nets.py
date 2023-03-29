@@ -215,11 +215,15 @@ def eval_for_loaders(which, model, loaders, params, save_folder, loader_label):
 
         m += X.size(0)
 
+    total_loss_rmse = total_loss_rmse.cpu().numpy()/m
+    total_task_loss = total_loss_task.cpu().numpy()/m
+    print(f'{loader_label}: rmse={total_loss_rmse.mean():.2f} task={total_task_loss.mean():.2f}')
+
     with open(os.path.join(save_folder, '{}_{}_rmse'.format(which, loader_label)), 'wb') as f:
-        np.save(f, total_loss_rmse.cpu().numpy()/m)
+        np.save(f, total_loss_rmse)
 
     with open(os.path.join(save_folder, '{}_{}_task'.format(which, loader_label)), 'wb') as f:
-        np.save(f, total_loss_task.cpu().numpy()/m)
+        np.save(f, total_task_loss)
 
     with open(os.path.join(save_folder, '{}_{}_preds'.format(which, loader_label)), 'wb') as f:
         np.save(f, all_preds.cpu().numpy())
