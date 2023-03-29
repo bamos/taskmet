@@ -89,7 +89,7 @@ class MetricNN(nn.Module):
         L = L.view(L.shape[0], self.num_output, self.num_output)
         A = (
             torch.bmm(L, L.transpose(1, 2))
-            + torch.eye(self.num_output).repeat(x.shape[0], 1, 1).cuda()
+            + 1e-7*torch.eye(self.num_output).repeat(x.shape[0], 1, 1).cuda()
         )
         # TODO: extend for PSD matrices with bounds from the
         # identity metric
