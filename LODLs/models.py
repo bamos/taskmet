@@ -67,8 +67,9 @@ def dense_nn(
 
 
 class MetricNN(nn.Module):
-    def __init__(self, num_features, num_output, num_hidden,
-                 identity_init, identity_init_scale):
+    def __init__(
+        self, num_features, num_output, num_hidden, identity_init, identity_init_scale
+    ):
         super().__init__()
         self.base = nn.Sequential(
             nn.Linear(num_features, num_hidden),
@@ -89,7 +90,7 @@ class MetricNN(nn.Module):
         L = L.view(L.shape[0], self.num_output, self.num_output)
         A = (
             torch.bmm(L, L.transpose(1, 2))
-            + 1e-7*torch.eye(self.num_output).repeat(x.shape[0], 1, 1).cuda()
+            + 1e-7 * torch.eye(self.num_output).repeat(x.shape[0], 1, 1).cuda()
         )
         # TODO: extend for PSD matrices with bounds from the
         # identity metric
@@ -138,7 +139,7 @@ class MetricModel(nn.Module):
         )
         self.pred_forward = self.predictor.forward
 
-    def make_predictor_differentiable(self, X_train, Y_train):
+    def make_predictor_differentiable(self, X_train, Y_train, verbose=False):
         # Assume we have the optimal predictor. Make the predictions
         # differentiable w.r.t. the metric with the IFT by applying
         # a Newton update to the predictor's parameters.
@@ -160,9 +161,10 @@ class MetricModel(nn.Module):
             loss = torch.stack(losses).mean()
             return loss
 
-        g = functorch.grad(pred_loss)(pred_params, self.metric_params)
-        g = torch.cat([e.flatten() for e in g])
-        print(f'implicit diff gradient norm: {g.norm()}')
+        if verbose:
+            g = functorch.grad(pred_loss)(pred_params, self.metric_params)
+            g = torch.cat([e.flatten() for e in g])
+            print(f"implicit diff gradient norm: {g.norm()}")
 
         if self.implicit_diff_mode == "exact":
             H = functorch.hessian(pred_loss)(pred_params, self.metric_params)
@@ -215,7 +217,7 @@ class MetricModel(nn.Module):
 
         self.pred_forward = functools.partial(pred_func, new_params)
 
-    def update_predictor(self, X_train, Y_train, num_iters=1001):
+    def update_predictor(self, X_train, Y_train, num_iters=1001, **kwargs):
         # Fit the predictor to the data with the current metric loss
         metric_loss = self.get_metric_loss()
 
@@ -238,7 +240,7 @@ class MetricModel(nn.Module):
             if train_iter == 0 or train_iter % 10 == 0:
                 print(f'inner iter {train_iter} loss: {loss.item():.2e} grad norm: {g.norm():.2e}')
 
-        self.make_predictor_differentiable(X_train, Y_train)
+        self.make_predictor_differentiable(X_train, Y_train, **kwargs)
         return {"inner_loss": loss.item()}
 
     def parameters(self):
@@ -518,7 +520,7 @@ class LowRankQuadratic(torch.nn.Module):
         Y,  # true labels
         rank=2,  # rank of the learned matrix
         quadalpha=0.1,  # regularisation weight
-        **kwargs
+        **kwargs,
     ):
         super(LowRankQuadratic, self).__init__()
         self.alpha = quadalpha

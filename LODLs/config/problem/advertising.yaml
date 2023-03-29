@@ -15,4 +15,4 @@ problem_kwargs:
 
 pred_lr: 1e-4
 metric_lr: 0.01
-batchsize: 32
+batchsize: 100

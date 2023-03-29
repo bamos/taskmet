@@ -1,34 +1,48 @@
-import sys
 import os
-
-import numpy as np
 import matplotlib.pyplot as plt
-import pickle as pkl
+import csv
 
 # Logger object to store the train and validation metrics to be used in workspcae object during training and also enable plotting at the of training
 class Logger:
-    def __init__(self, work_dir, filename):
+    def __init__(self, work_dir, filename, print_freq=100, save_freq=10):
         self.work_dir = work_dir
         self.filename = filename
-
+        self.print_freq = print_freq
         self.train_metrics = {}
         self.val_metrics = {}
+        self.log_file = open(os.path.join(self.work_dir, self.filename), "w")
+        self.csv_writer = csv.writer(
+            self.log_file, delimiter=",", quotechar='"', quoting=csv.QUOTE_MINIMAL
+        )
+        self.save_freq = save_freq
 
-    def log(self, train_metrics={}, val_metrics={}):
+    def log(self, metrices={}, iter=0, partition="Train"):
+        # print the metrices in neat format
+        if iter % self.print_freq == 0:
+            self.print_metrics(metrices, iter, partition)
+
+        # write the metrices to csv file
+        if iter == 0 and partition == "Train":
+            self.csv_writer.writerow(["partition", "iter"] + list(metrices.keys()))
+        if iter % self.save_freq == 0:
+            self.csv_writer.writerow([partition, iter] + list(metrices.values()))
+
         # append the existing metrics and add new key if metric is not present
-        for metric in train_metrics.keys():
-            if metric not in self.train_metrics.keys():
-                self.train_metrics[metric] = {}
-            self.train_metrics[metric][train_metrics["iter"]] = train_metrics[metric]
+        for metric in metrices.keys():
+            if partition == "Train":
+                if metric not in self.train_metrics.keys():
+                    self.train_metrics[metric] = {}
+                self.train_metrics[metric][iter] = metrices[metric]
+            else:
+                if metric not in self.val_metrics.keys():
+                    self.val_metrics[metric] = {}
+                self.val_metrics[metric][iter] = metrices[metric]
 
-        for metric in val_metrics.keys():
-            if metric not in self.val_metrics.keys():
-                self.val_metrics[metric] = {}
-            self.val_metrics[metric][val_metrics["iter"]] = val_metrics[metric]
-
-    def save(self):
-        with open(os.path.join(self.work_dir, self.filename), "wb") as f:
-            pkl.dump(self, f)
+    def print_metrics(self, metrics={}, iter=0, parition="Train"):
+        print(f"{parition:<7} Iter: {iter}", end=" ")
+        for metric in metrics.keys():
+            print(f"{metric}: {metrics[metric]:.2e}", end=" ")
+        print()
 
     # plot all the metrices and save them in work_dir
     def plot(self):
@@ -51,8 +65,7 @@ class Logger:
             fig.savefig(os.path.join(self.work_dir, f"{metric}.png"))
             ax.cla()
 
-    @staticmethod
-    def load(work_dir, filename):
-        with open(os.path.join(work_dir, filename), "rb") as f:
-            logger = pkl.load(f)
-        return logger
+    def close(self):
+        self.plot()
+        plt.close("all")
+        self.log_file.close()

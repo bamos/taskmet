@@ -38,8 +38,6 @@ class Workspace:
 
         self.load_problem()
 
-        self.logger = Logger(os.getcwd(), "log.txt")
-
         # set these after loading the problem for reproducibility
         random.seed(self.cfg.seed)
         torch.manual_seed(self.cfg.seed)
@@ -67,6 +65,7 @@ class Workspace:
         self.best_val_loss = float("inf")
 
     def run(self):
+        logger = Logger(os.getcwd(), "log.csv")
         loss_fn = get_loss_fn(
             self.cfg.loss if not isinstance(self.model, MetricModel) else "dfl",
             self.problem,
@@ -85,63 +84,22 @@ class Workspace:
         # Get data
         X_train, Y_train, Y_train_aux = self.problem.get_train_data()
         X_val, Y_val, Y_val_aux = self.problem.get_val_data()
-        X_test, Y_test, Y_test_aux = self.problem.get_test_data()
+        # X_test, Y_test, Y_test_aux = self.problem.get_test_data()
 
-        # TODO Set batch sizes/num_iters/opts somewhere else?
-        if self.cfg.loss == "metric" and self.train_iter == 0:
-            # self.model.pretrain_metric(X_train)
-            self.model.update_predictor(
-                X_train, Y_train, num_iters=self.cfg.num_inner_iters_init
-            )
-            self.save()
-            self.save("best")
+        while self.train_iter <= self.cfg.iters:
+            metrics = {}
 
-        while self.train_iter < self.cfg.iters:
-            # Check metrics on val set
-            if self.train_iter % self.cfg.valfreq == 0:
-                self.save()
+            if self.cfg.loss == "metric":
+                num_iters = (
+                    self.cfg.num_inner_iters
+                    if self.train_iter > 0
+                    else self.cfg.num_inner_iters_init
+                )
+                predictor_metric = self.model.update_predictor(
+                    X_train, Y_train, num_iters=num_iters, verbose=False
+                )
+                metrics.update(predictor_metric)
 
-                # Compute metrics
-                losses = []
-                DQ = []
-                mse = []
-                for i in range(len(X_val)):
-                    pred = self.model(X_val[i]).squeeze()
-                    losses.append(
-                        loss_fn(
-                            pred,
-                            Y_val[i],
-                            aux_data=Y_val_aux[i],
-                            partition="validation",
-                            index=i,
-                        ).item()
-                    )
-                    Zs_pred = self.problem.get_decision(
-                        pred, aux_data=Y_val_aux[i], isTrain=True
-                    )
-                    DQ.append(
-                        self.problem.get_objective(
-                            Y_val[i], Zs_pred, aux_data=Y_val_aux[i]
-                        ).item()
-                    )
-                    mse.append((pred - Y_val[i]).pow(2).mean().item())
-
-                metrics = {
-                    "loss": np.mean(losses),
-                    "DQ": np.mean(DQ),
-                    "MSE": np.mean(mse),
-                    "iter": self.train_iter,
-                }
-
-                print(f"val | Iteration {self.train_iter}: {metrics}")
-
-                self.logger.log(val_metrics=metrics)
-                # Save model if it's the best one
-                if metrics["loss"] < self.best_val_loss:
-                    self.save("best")
-                    self.best_val_loss = metrics["loss"]
-
-            # Learn
             losses = []
             DQ = []
             mse = []
@@ -171,33 +129,76 @@ class Workspace:
             loss = torch.stack(losses).mean()
             self.optimizer.zero_grad()
             loss.backward()
-
-            # check of gradient is nan
-            for param in self.model.parameters():
-                assert not torch.isnan(param.grad).any()
-
             self.optimizer.step()
 
-            metrics = {
-                "outer_loss": loss.item(),
-                "DQ": np.mean(DQ),
-                "MSE": np.mean(mse),
-                "iter": self.train_iter,
-            }
+            metrics.update(
+                {
+                    "outer_loss": loss.item(),
+                    "DQ": np.mean(DQ),
+                    "MSE": np.mean(mse),
+                }
+            )
 
-            if self.cfg.loss == "metric":
-                predictor_metric = self.model.update_predictor(
-                    X_train, Y_train, num_iters=self.cfg.num_inner_iters
-                )
-                metrics.update(predictor_metric)
+            logger.log(metrics, iter=self.train_iter, partition="Train")
+
             if self.train_iter % self.cfg.valfreq == 0:
-                print(f"train - Iteration {self.train_iter}: {metrics}")
-            self.logger.log(train_metrics=metrics)
+                metrics = self.val_metrices(loss_fn, X_val, Y_val, Y_val_aux)
+                logger.log(metrics, iter=self.train_iter, partition="Val")
+                # Save model if it's the best one
+                if metrics["outer_loss"] < self.best_val_loss:
+                    self.save("best")
+                    self.best_val_loss = metrics["outer_loss"]
+                    self.best_iter = self.train_iter
             self.train_iter += 1
 
+        print("Training complete, best model saved at iter {}".format(self.best_iter))
+        logger.close()
         self.save()
-        # self.logger.plot()
-        # self.logger.save()
+
+    def val_metrices(self, loss_fn, X_val, Y_val, Y_val_aux):
+        losses = []
+        DQ = []
+        mse = []
+        if self.cfg.loss == "metric":
+            inner_loss = []
+            metric_loss = self.model.get_metric_loss()
+        for i in range(len(X_val)):
+            pred = self.model(X_val[i]).squeeze()
+            losses.append(
+                loss_fn(
+                    pred,
+                    Y_val[i],
+                    aux_data=Y_val_aux[i],
+                    partition="validation",
+                    index=i,
+                ).item()
+            )
+            Zs_pred = self.problem.get_decision(
+                pred, aux_data=Y_val_aux[i], isTrain=True
+            )
+            DQ.append(
+                self.problem.get_objective(
+                    Y_val[i], Zs_pred, aux_data=Y_val_aux[i]
+                ).item()
+            )
+            mse.append((pred - Y_val[i]).pow(2).mean().item())
+            if self.cfg.loss == "metric":
+                inner_loss.append(metric_loss(X_val[i], pred, Y_val[i]).item())
+        if self.cfg.loss == "metric":
+            metrics = {
+                "inner_loss": np.mean(inner_loss),
+                "outer_loss": np.mean(losses),
+                "DQ": np.mean(DQ),
+                "MSE": np.mean(mse),
+            }
+        else:
+            metrics = {
+                "outer_loss": np.mean(losses),
+                "DQ": np.mean(DQ),
+                "MSE": np.mean(mse),
+            }
+
+        return metrics
 
     def test(self):
         # Document how well this trained model does
