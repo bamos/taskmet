@@ -7,6 +7,6 @@ loss_kwargs:
     samplingstd: 1.
     losslr: 0.01
 
-    #       Approach-Specific: Quadratic
+    # Approach-Specific: Quadratic
     quadrank: 20
     quadalpha: 0

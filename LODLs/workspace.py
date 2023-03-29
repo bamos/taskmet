@@ -8,6 +8,7 @@ import argparse
 import ast
 import torch
 import random
+import numpy as np
 import json
 import pdb
 import matplotlib.pyplot as plt
@@ -25,6 +26,7 @@ from CubicTopK import CubicTopK
 from models import model_dict, MetricModel
 from losses import MSE, get_loss_fn
 from utils import print_metrics, init_if_not_saved, move_to_gpu
+from logger import Logger
 
 
 class Workspace:
@@ -35,6 +37,14 @@ class Workspace:
         self.cfg = cfg
 
         self.load_problem()
+
+        self.logger = Logger(os.getcwd(), "log.txt")
+
+        # set these after loading the problem for reproducibility
+        random.seed(self.cfg.seed)
+        torch.manual_seed(self.cfg.seed)
+        torch.cuda.manual_seed(self.cfg.seed)
+        np.random.seed(self.cfg.seed)
 
         ipdim, opdim = self.problem.get_modelio_shape()
         if self.cfg.loss == "metric":
@@ -54,7 +64,7 @@ class Workspace:
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         self.train_iter = 0
-        self.best_val_loss = float('inf')
+        self.best_val_loss = float("inf")
 
     def run(self):
         loss_fn = get_loss_fn(
@@ -69,8 +79,8 @@ class Workspace:
             device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             self.model = self.model.to(device)
 
-        if hasattr(self.problem, "plot"):
-            self.problem.plot("latest.png", self)
+        # if hasattr(self.problem, "plot"):
+        #     self.problem.plot("latest.png", self)
 
         # Get data
         X_train, Y_train, Y_train_aux = self.problem.get_train_data()
@@ -78,7 +88,8 @@ class Workspace:
         X_test, Y_test, Y_test_aux = self.problem.get_test_data()
 
         # TODO Set batch sizes/num_iters/opts somewhere else?
-        if self.cfg.loss == "metric":
+        if self.cfg.loss == "metric" and self.train_iter == 0:
+            # self.model.pretrain_metric(X_train)
             self.model.update_predictor(
                 X_train, Y_train, num_iters=self.cfg.num_inner_iters_init
             )
@@ -88,35 +99,50 @@ class Workspace:
             if self.train_iter % self.cfg.valfreq == 0:
                 self.save()
 
-                # TODO: copy instead of re-plotting
-                if hasattr(self.problem, "plot"):
-                    self.problem.plot("latest.png", self)
-                    self.problem.plot(f"vis_{self.train_iter:05d}.png", self)
-
-                # print(f'  metric weight value: {self.model.metric_params[0].item():.2f}')
-                # print(f'  metric weight grad: {self.model.metric_params[0].grad.item():.2f}')
-
                 # Compute metrics
-                datasets = [
-                    (X_train, Y_train, Y_train_aux, "train"),
-                    (X_val, Y_val, Y_val_aux, "val"),
-                ]
-                metrics = print_metrics(
-                    datasets,
-                    self.model,
-                    self.problem,
-                    self.cfg.loss,
-                    loss_fn,
-                    f"Iter {self.train_iter},",
-                )
+                losses = []
+                DQ = []
+                mse = []
+                for i in range(len(X_val)):
+                    pred = self.model(X_val[i]).squeeze()
+                    losses.append(
+                        loss_fn(
+                            pred,
+                            Y_val[i],
+                            aux_data=Y_val_aux[i],
+                            partition="validation",
+                            index=i,
+                        ).item()
+                    )
+                    Zs_pred = self.problem.get_decision(
+                        pred, aux_data=Y_val_aux[i], isTrain=True
+                    )
+                    DQ.append(
+                        self.problem.get_objective(
+                            Y_val[i], Zs_pred, aux_data=Y_val_aux[i]
+                        ).item()
+                    )
+                    mse.append((pred - Y_val[i]).pow(2).mean().item())
 
+                metrics = {
+                    "loss": np.mean(losses),
+                    "DQ": np.mean(DQ),
+                    "MSE": np.mean(mse),
+                    "iter": self.train_iter,
+                }
+
+                print(f"val | Iteration {self.train_iter}: {metrics}")
+
+                self.logger.log(val_metrics=metrics)
                 # Save model if it's the best one
-                if metrics["val"]["loss"] < self.best_val_loss:
-                    self.save('best')
-                    self.best_val_loss = metrics["val"]["loss"]
+                if metrics["loss"] < self.best_val_loss:
+                    self.save("best")
+                    self.best_val_loss = metrics["loss"]
 
             # Learn
             losses = []
+            DQ = []
+            mse = []
             for i in random.sample(
                 range(len(X_train)), min(self.cfg.batchsize, len(X_train))
             ):
@@ -130,20 +156,46 @@ class Workspace:
                         index=i,
                     )
                 )
+                Zs_pred = self.problem.get_decision(
+                    pred, aux_data=Y_train_aux[i], isTrain=True
+                )
+                DQ.append(
+                    self.problem.get_objective(
+                        Y_train[i], Zs_pred, aux_data=Y_train_aux[i]
+                    ).item()
+                )
+                mse.append((pred - Y_train[i]).pow(2).mean().item())
+
             loss = torch.stack(losses).mean()
             self.optimizer.zero_grad()
             loss.backward()
 
+            # check of gradient is nan
+            for param in self.model.parameters():
+                assert not torch.isnan(param.grad).any()
+
             self.optimizer.step()
 
-            # TODO Set batch sizes/num_iters/opts somewhere else?
+            metrics = {
+                "outer_loss": loss.item(),
+                "DQ": np.mean(DQ),
+                "MSE": np.mean(mse),
+                "iter": self.train_iter,
+            }
+
             if self.cfg.loss == "metric":
-                self.model.update_predictor(
+                predictor_metric = self.model.update_predictor(
                     X_train, Y_train, num_iters=self.cfg.num_inner_iters
                 )
+                metrics.update(predictor_metric)
+            if self.train_iter % self.cfg.valfreq == 0:
+                print(f"train - Iteration {self.train_iter}: {metrics}")
+            self.logger.log(train_metrics=metrics)
             self.train_iter += 1
 
         self.save()
+        # self.logger.plot()
+        # self.logger.save()
 
     def test(self):
         # Document how well this trained model does
@@ -160,7 +212,6 @@ class Workspace:
             move_to_gpu(self.problem)
             device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             self.model = self.model.to(device)
-
 
         X_train, Y_train, Y_train_aux = self.problem.get_train_data()
         X_val, Y_val, Y_val_aux = self.problem.get_val_data()
@@ -205,15 +256,15 @@ class Workspace:
         print(f"Normalized Test Decision Quality: {normalized_test_dq:.2f}")
 
         test_stats = {
-            'random_dq_unnorm': random_dq,
-            'optimal_dq_unnorm': optimal_dq,
-            'test_dq_unnorm': test_dq,
-            'test_dq_norm': normalized_test_dq,
+            "random_dq_unnorm": random_dq,
+            "optimal_dq_unnorm": optimal_dq,
+            "test_dq_unnorm": test_dq,
+            "test_dq_norm": normalized_test_dq,
         }
 
-        fname = 'test_stats.json'
-        print(f'writing to {fname}')
-        with open(fname, 'w') as f:
+        fname = "test_stats.json"
+        print(f"writing to {fname}")
+        with open(fname, "w") as f:
             json.dump(test_stats, f)
 
     def save(self, tag="latest"):

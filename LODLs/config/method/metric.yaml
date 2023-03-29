@@ -2,12 +2,16 @@
 
 loss: 'metric'
 
+loss_kwargs:
+    dflalpha: 0.0
+
 model_kwargs:
-    prediction_batchsize: 1
-    implicit_diff_batchsize: 100
-    implicit_diff_mode: torchopt_cg
+    prediction_batchsize: 10
+    implicit_diff_batchsize: 50
+    implicit_diff_mode: torchopt_normal_cg
+    implicit_diff_iters: 5
     predictor_lr: ${pred_lr}
     # implicit_diff_mode: exact
 
 num_inner_iters_init: 5000
-num_inner_iters: 100
+num_inner_iters: 50

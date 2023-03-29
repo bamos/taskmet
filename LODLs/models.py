@@ -74,18 +74,18 @@ class MetricNN(nn.Module):
             nn.ReLU(),
             nn.Linear(100, num_output * num_output),
         )
+        # self.base[2].weight.data.fill_(0)
+        # self.base[2].bias.data.fill_(0.69)
         self.num_output = num_output
 
     def forward(self, x):
         # A = torch.nn.functional.softplus(self.base(x))
         L = self.base(x)
         L = L.view(L.shape[0], self.num_output, self.num_output)
-        A = torch.bmm(L, L.transpose(1, 2)) + 1e-6 * torch.eye(self.num_output).to(
-            x.device
+        A = (
+            torch.bmm(L, L.transpose(1, 2))
+            + torch.eye(self.num_output).repeat(x.shape[0], 1, 1).cuda()
         )
-        # L = self.base(x)
-        # A = L
-        # import ipdb; ipdb.set_trace()
         # TODO: extend for PSD matrices with bounds from the
         # identity metric
         return A
@@ -104,6 +104,7 @@ class MetricModel(nn.Module):
         implicit_diff_batchsize=100,
         predictor_lr=1e-3,
         implicit_diff_mode="exact",
+        implicit_diff_iters=5,
     ):
         super(MetricModel, self).__init__()
         self.predictor = dense_nn(
@@ -117,6 +118,7 @@ class MetricModel(nn.Module):
         self.prediction_batchsize = prediction_batchsize
         self.implicit_diff_batchsize = implicit_diff_batchsize
         self.implicit_diff_mode = implicit_diff_mode
+        self.implicit_diff_iters = implicit_diff_iters
 
         # TODO: add aux_data, e.g., Q?
         self.metric_def = MetricNN(num_features, num_targets).cuda()
@@ -171,7 +173,15 @@ class MetricModel(nn.Module):
             if solver_mode == "exact":
                 solver = torchopt.linear_solve.solve_inv()
             elif solver_mode == "cg":
-                solver = torchopt.linear_solve.solve_cg(maxiter=5, atol=0)
+                solver = torchopt.linear_solve.solve_cg(
+                    maxiter=self.implicit_diff_iters, atol=0.0
+                )
+            elif solver_mode == "normal_cg":
+                solver = torchopt.linear_solve.solve_normal_cg(
+                    maxiter=self.implicit_diff_iters, atol=0.0, ridge=1e-5
+                )
+            elif solver_mode == "neumann_series":
+                solver = torchopt.linear_solve.solve_inv(ns=True)
             else:
                 assert False
 
@@ -184,6 +194,10 @@ class MetricModel(nn.Module):
                 return pred_params
 
             new_params = solve(pred_params, self.metric_params)
+            if torch.tensor([torch.isnan(param).any() for param in new_params]).any():
+                print("WARNING: NaN in new_params")
+                print(new_params)
+                new_params = pred_params
         else:
             assert False
 
@@ -209,6 +223,7 @@ class MetricModel(nn.Module):
             #     print(f'inner iter {train_iter} loss: {loss.item():.2e}')
 
         self.make_predictor_differentiable(X_train, Y_train)
+        return {"inner_loss": loss.item()}
 
     def parameters(self):
         return self.metric_params
@@ -231,7 +246,7 @@ class MetricModel(nn.Module):
             err = (Yhats - Ys).view(A.shape[0], A.shape[1], 1)
             # print(A.shape, err.shape)
             return (err.transpose(1, 2) @ A @ err).mean()
-            # return (A * (Yhats - Ys) ** 2).mean()
+            return (A * (Yhats - Ys) ** 2).mean()
 
         return metric_loss
 
