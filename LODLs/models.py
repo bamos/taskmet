@@ -67,15 +67,20 @@ def dense_nn(
 
 
 class MetricNN(nn.Module):
-    def __init__(self, num_features, num_output):
+    def __init__(self, num_features, num_output, num_hidden,
+                 identity_init, identity_init_scale):
         super().__init__()
         self.base = nn.Sequential(
-            nn.Linear(num_features, 100),
+            nn.Linear(num_features, num_hidden),
             nn.ReLU(),
-            nn.Linear(100, num_output * num_output),
+            nn.Linear(num_hidden, num_output * num_output),
         )
-        # self.base[2].weight.data.fill_(0)
-        # self.base[2].bias.data.fill_(0.69)
+
+        if identity_init:
+            last_layer = self.base[-1]
+            last_layer.weight.data.div_(identity_init_scale)
+            last_layer.bias.data = torch.eye(num_output).view(-1)
+
         self.num_output = num_output
 
     def forward(self, x):
@@ -105,6 +110,7 @@ class MetricModel(nn.Module):
         predictor_lr=1e-3,
         implicit_diff_mode="exact",
         implicit_diff_iters=5,
+        metric_kwargs={},
     ):
         super(MetricModel, self).__init__()
         self.predictor = dense_nn(
@@ -121,7 +127,7 @@ class MetricModel(nn.Module):
         self.implicit_diff_iters = implicit_diff_iters
 
         # TODO: add aux_data, e.g., Q?
-        self.metric_def = MetricNN(num_features, num_targets).cuda()
+        self.metric_def = MetricNN(num_features, num_targets, **metric_kwargs).cuda()
         metric_func, self.metric_params = functorch.make_functional(self.metric_def)
 
         self.predictor_optimizer = torch.optim.Adam(
@@ -151,6 +157,10 @@ class MetricModel(nn.Module):
                 )
             loss = torch.stack(losses).mean()
             return loss
+
+        g = functorch.grad(pred_loss)(pred_params, self.metric_params)
+        g = torch.cat([e.flatten() for e in g])
+        print(f'implicit diff gradient norm: {g.norm()}')
 
         if self.implicit_diff_mode == "exact":
             H = functorch.hessian(pred_loss)(pred_params, self.metric_params)

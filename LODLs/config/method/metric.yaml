@@ -13,5 +13,10 @@ model_kwargs:
     predictor_lr: ${pred_lr}
     # implicit_diff_mode: exact
 
+    metric_kwargs:
+      num_hidden: 100
+      identity_init: True
+      identity_init_scale: 10.
+
 num_inner_iters_init: 5000
 num_inner_iters: 50
