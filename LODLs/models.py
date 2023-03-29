@@ -108,6 +108,7 @@ class MetricModel(nn.Module):
         prediction_batchsize=1,
         implicit_diff_batchsize=100,
         predictor_lr=1e-3,
+        predictor_grad_norm_threshold=1e-3,
         implicit_diff_mode="exact",
         implicit_diff_iters=5,
         metric_kwargs={},
@@ -122,6 +123,7 @@ class MetricModel(nn.Module):
             output_activation=output_activation,
         )
         self.prediction_batchsize = prediction_batchsize
+        self.predictor_grad_norm_threshold = predictor_grad_norm_threshold
         self.implicit_diff_batchsize = implicit_diff_batchsize
         self.implicit_diff_mode = implicit_diff_mode
         self.implicit_diff_iters = implicit_diff_iters
@@ -229,8 +231,12 @@ class MetricModel(nn.Module):
             loss.backward()
             self.predictor_optimizer.step()
 
-            # if train_iter == 0 or train_iter % 10 == 0:
-            #     print(f'inner iter {train_iter} loss: {loss.item():.2e}')
+            g = torch.cat([p.grad.flatten() for p in self.predictor.parameters()])
+            if g.norm() < self.predictor_grad_norm_threshold:
+                break
+
+            if train_iter == 0 or train_iter % 10 == 0:
+                print(f'inner iter {train_iter} loss: {loss.item():.2e} grad norm: {g.norm():.2e}')
 
         self.make_predictor_differentiable(X_train, Y_train)
         return {"inner_loss": loss.item()}

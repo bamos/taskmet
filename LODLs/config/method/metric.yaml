@@ -12,6 +12,7 @@ model_kwargs:
     implicit_diff_iters: 5
     predictor_lr: ${pred_lr}
     # implicit_diff_mode: exact
+    predictor_grad_norm_threshold: 1e-3
 
     metric_kwargs:
       num_hidden: 100
@@ -19,4 +20,4 @@ model_kwargs:
       identity_init_scale: 100.
 
 num_inner_iters_init: 5000
-num_inner_iters: 50
+num_inner_iters: 5000
