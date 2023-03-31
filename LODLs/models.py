@@ -68,7 +68,12 @@ def dense_nn(
 
 class MetricNN(nn.Module):
     def __init__(
-        self, num_features, num_output, num_hidden, identity_init, identity_init_scale
+        self,
+        num_features,
+        num_output,
+        num_hidden,
+        identity_init,
+        identity_init_scale,
     ):
         super().__init__()
         self.base = nn.Sequential(
@@ -76,7 +81,7 @@ class MetricNN(nn.Module):
             nn.ReLU(),
             nn.Linear(num_hidden, num_output * num_output),
         )
-
+        self.identity_fac_log = torch.nn.parameter.Parameter(torch.zeros([]))
         if identity_init:
             last_layer = self.base[-1]
             last_layer.weight.data.div_(identity_init_scale)
@@ -86,11 +91,12 @@ class MetricNN(nn.Module):
 
     def forward(self, x):
         # A = torch.nn.functional.softplus(self.base(x))
+        identity_fac = torch.exp(self.identity_fac_log)
         L = self.base(x)
         L = L.view(L.shape[0], self.num_output, self.num_output)
         A = (
             torch.bmm(L, L.transpose(1, 2))
-            + 1e-7 * torch.eye(self.num_output).repeat(x.shape[0], 1, 1).cuda()
+            + identity_fac * torch.eye(self.num_output).repeat(x.shape[0], 1, 1).cuda()
         )
         # TODO: extend for PSD matrices with bounds from the
         # identity metric
@@ -112,6 +118,7 @@ class MetricModel(nn.Module):
         predictor_grad_norm_threshold=1e-3,
         implicit_diff_mode="exact",
         implicit_diff_iters=5,
+        predictor_grad_clip_norm=1e-0,
         metric_kwargs={},
     ):
         super(MetricModel, self).__init__()
@@ -128,6 +135,7 @@ class MetricModel(nn.Module):
         self.implicit_diff_batchsize = implicit_diff_batchsize
         self.implicit_diff_mode = implicit_diff_mode
         self.implicit_diff_iters = implicit_diff_iters
+        self.predictor_grad_clip_norm = predictor_grad_clip_norm
 
         # TODO: add aux_data, e.g., Q?
         self.metric_def = MetricNN(num_features, num_targets, **metric_kwargs).cuda()
@@ -231,14 +239,19 @@ class MetricModel(nn.Module):
             loss = torch.stack(losses).mean()
             self.predictor_optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(
+                self.predictor.parameters(), self.predictor_grad_clip_norm
+            )
             self.predictor_optimizer.step()
 
             g = torch.cat([p.grad.flatten() for p in self.predictor.parameters()])
             if g.norm() < self.predictor_grad_norm_threshold:
                 break
 
-            if train_iter == 0 or train_iter % 10 == 0:
-                print(f'inner iter {train_iter} loss: {loss.item():.2e} grad norm: {g.norm():.2e}')
+            if train_iter == 0 or train_iter % 10 == 0 and kwargs.get("verbose", False):
+                print(
+                    f"inner iter {train_iter} loss: {loss.item():.2e} grad norm: {g.norm():.2e}"
+                )
 
         self.make_predictor_differentiable(X_train, Y_train, **kwargs)
         return {"inner_loss": loss.item()}

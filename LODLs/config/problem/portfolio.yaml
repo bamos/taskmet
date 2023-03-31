@@ -11,6 +11,6 @@ problem_kwargs:
     val_frac: 0.5
     rand_seed: ${dataset_seed}
 
-pred_lr: 0.01
-metric_lr: 0.01
+pred_lr: 1e-3 # inner loss increases suddenly sometimes with 1e-2
+metric_lr: 1e-3
 batchsize: 100

@@ -89,6 +89,7 @@ class Workspace:
         while self.train_iter <= self.cfg.iters:
             metrics = {}
 
+            #  inner loop, update predictor
             if self.cfg.loss == "metric":
                 num_iters = (
                     self.cfg.num_inner_iters
@@ -96,7 +97,7 @@ class Workspace:
                     else self.cfg.num_inner_iters_init
                 )
                 predictor_metric = self.model.update_predictor(
-                    X_train, Y_train, num_iters=num_iters, verbose=False
+                    X_train, Y_train, num_iters=num_iters, verbose=True
                 )
                 metrics.update(predictor_metric)
 
@@ -129,7 +130,6 @@ class Workspace:
             loss = torch.stack(losses).mean()
             self.optimizer.zero_grad()
             loss.backward()
-            self.optimizer.step()
 
             metrics.update(
                 {
@@ -138,6 +138,7 @@ class Workspace:
                     "MSE": np.mean(mse),
                 }
             )
+            print("Outer Iter: ", self.train_iter, "DQ: ", metrics["DQ"])
 
             logger.log(metrics, iter=self.train_iter, partition="Train")
 
@@ -149,6 +150,8 @@ class Workspace:
                     self.save("best")
                     self.best_val_loss = metrics["outer_loss"]
                     self.best_iter = self.train_iter
+
+            self.optimizer.step()  # putting this after the validation step to avoid using new metric for validation inner loss
             self.train_iter += 1
 
         print("Training complete, best model saved at iter {}".format(self.best_iter))
@@ -231,27 +234,14 @@ class Workspace:
         )
 
         #   Document the value of a random guess
-        objs_rand = []
-        for _ in range(10):
-            Z_test_rand = self.problem.get_decision(
-                torch.rand_like(Y_test), aux_data=Y_test_aux, isTrain=False
-            )
-            objectives = self.problem.get_objective(
-                Y_test, Z_test_rand, aux_data=Y_test_aux
-            )
-            objs_rand.append(objectives)
-        random_dq = torch.stack(objs_rand).mean().item()
+        random_dq = self.DQ(Y_test, Y_test_aux, model="random")
         print(f"\nRandom Decision Quality: {random_dq:.2f} (normalized: 0)")
 
         #   Document the optimal value
-        Z_test_opt = self.problem.get_decision(
-            Y_test, aux_data=Y_test_aux, isTrain=False
-        )
-        objectives = self.problem.get_objective(Y_test, Z_test_opt, aux_data=Y_test_aux)
-        optimal_dq = objectives.mean().item()
+        optimal_dq = self.DQ(Y_test, Y_test_aux, model="optimal")
         print(f"Optimal Decision Quality: {optimal_dq:.2f} (normalized: 1)")
         print()
-        self.save()
+        # self.save()
 
         dq_range = optimal_dq - random_dq
         test_dq = metrics["test"]["objective"]
@@ -269,6 +259,23 @@ class Workspace:
         print(f"writing to {fname}")
         with open(fname, "w") as f:
             json.dump(test_stats, f)
+
+    def DQ(self, Y_test, Y_test_aux, model="random"):
+        objs = []
+        for _ in range(10):
+            if model == "random":
+                pred = torch.rand_like(Y_test)
+            elif model == "optimal":
+                pred = Y_test
+            Z_test_rand = self.problem.get_decision(
+                pred, aux_data=Y_test_aux, isTrain=False
+            )
+            objectives = self.problem.get_objective(
+                Y_test, Z_test_rand, aux_data=Y_test_aux
+            )
+            objs.append(objectives)
+        dq = torch.stack(objs).mean().item()
+        return dq
 
     def save(self, tag="latest"):
         path = os.path.join(self.work_dir, f"{tag}.pkl")

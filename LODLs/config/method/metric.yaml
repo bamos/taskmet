@@ -13,11 +13,13 @@ model_kwargs:
     predictor_lr: ${pred_lr}
     # implicit_diff_mode: exact
     predictor_grad_norm_threshold: 1e-3
+    predictor_grad_clip_norm: 1e-0
 
     metric_kwargs:
-      num_hidden: 100
-      identity_init: True
+    #   version: 'v1'
+      num_hidden: 200
+      identity_init: False
       identity_init_scale: 100.
 
 num_inner_iters_init: 5000
-num_inner_iters: 5000
+num_inner_iters: 100

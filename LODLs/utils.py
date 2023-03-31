@@ -95,6 +95,7 @@ def print_metrics(
         pred = model(Xs).squeeze()
         Zs_pred = problem.get_decision(pred, aux_data=Ys_aux, isTrain=isTrain)
         objectives = problem.get_objective(Ys, Zs_pred, aux_data=Ys_aux)
+        mse = (pred - Ys).pow(2).mean().item()
 
         # Loss and Error
         if partition != "test":
@@ -116,7 +117,7 @@ def print_metrics(
         loss = losses.mean().item()
         mae = torch.nn.L1Loss()(losses, -objectives).item()
         print(
-            f"{prefix} {partition} DQ: {objective:.2e}, Loss: {loss:.2e}, MAE: {mae:.2f}, MSE: {(pred-Ys).pow(2).mean().item():.2e}"
+            f"{prefix} {partition} DQ: {objective:.2e}, Loss: {loss:.2e}, MAE: {mae:.2f}, MSE: {mse:.2e}"
         )
         metrics[partition] = {"objective": objective, "loss": loss, "mae": mae}
 
