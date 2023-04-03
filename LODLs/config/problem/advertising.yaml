@@ -14,5 +14,5 @@ problem_kwargs:
     rand_seed: ${dataset_seed}
 
 pred_lr: 1e-4
-metric_lr: 0.01
+metric_lr: 1e-3
 batchsize: 100

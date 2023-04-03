@@ -7,10 +7,11 @@ defaults:
 loadnew: False
 iters: 5000
 patience: 100
-valfreq: 100
+valfreq: 50
 seed: 0
 dataset_seed: 0
 pred_model: 'dense'
+verbose: False
 
 batchsize: ??
 pred_lr: ??
@@ -25,10 +26,11 @@ hydra:
     chdir: True
   sweep:
     dir: ./exp/${now:%Y.%m.%d}/${now:%H%M}
-    subdir: ${hydra.job.num}
+    subdir: ${hydra.job.num}_${problem}_${method}
   launcher:
     max_num_timeout: 100000
     timeout_min: 4319
     partition: learnlab
     mem_gb: 64
     gpus_per_node: 1
+    

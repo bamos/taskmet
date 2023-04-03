@@ -11,13 +11,12 @@ model_kwargs:
     implicit_diff_mode: torchopt_normal_cg
     implicit_diff_iters: 5
     predictor_lr: ${pred_lr}
-    # implicit_diff_mode: exact
     predictor_grad_norm_threshold: 1e-3
     predictor_grad_clip_norm: 1e-0
 
     metric_kwargs:
     #   version: 'v1'
-      num_hidden: 200
+      num_hidden: 100
       identity_init: False
       identity_init_scale: 100.
 

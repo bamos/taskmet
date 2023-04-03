@@ -97,7 +97,7 @@ class Workspace:
                     else self.cfg.num_inner_iters_init
                 )
                 predictor_metric = self.model.update_predictor(
-                    X_train, Y_train, num_iters=num_iters, verbose=True
+                    X_train, Y_train, num_iters=num_iters, verbose=self.cfg.verbose
                 )
                 metrics.update(predictor_metric)
 
@@ -138,7 +138,9 @@ class Workspace:
                     "MSE": np.mean(mse),
                 }
             )
-            print("Outer Iter: ", self.train_iter, "DQ: ", metrics["DQ"])
+
+            if self.cfg.verbose:
+                print(f"Outer Iter: {self.train_iter}, DQ: {metrics['DQ']:.2e}")
 
             logger.log(metrics, iter=self.train_iter, partition="Train")
 

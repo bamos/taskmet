@@ -4,7 +4,9 @@ import csv
 
 # Logger object to store the train and validation metrics to be used in workspcae object during training and also enable plotting at the of training
 class Logger:
-    def __init__(self, work_dir, filename, print_freq=100, save_freq=10):
+    def __init__(
+        self, work_dir, filename, print_freq=100, save_freq=10, save_fig_freq=50
+    ):
         self.work_dir = work_dir
         self.filename = filename
         self.print_freq = print_freq
@@ -15,6 +17,7 @@ class Logger:
             self.log_file, delimiter=",", quotechar='"', quoting=csv.QUOTE_MINIMAL
         )
         self.save_freq = save_freq
+        self.save_fig_freq = save_fig_freq
 
     def log(self, metrices={}, iter=0, partition="Train"):
         # print the metrices in neat format
@@ -26,6 +29,7 @@ class Logger:
             self.csv_writer.writerow(["partition", "iter"] + list(metrices.keys()))
         if iter % self.save_freq == 0:
             self.csv_writer.writerow([partition, iter] + list(metrices.values()))
+            self.log_file.flush()
 
         # append the existing metrics and add new key if metric is not present
         for metric in metrices.keys():
@@ -37,6 +41,9 @@ class Logger:
                 if metric not in self.val_metrics.keys():
                     self.val_metrics[metric] = {}
                 self.val_metrics[metric][iter] = metrices[metric]
+
+        if iter % self.save_fig_freq == 0 and partition == "Val":
+            self.plot()
 
     def print_metrics(self, metrics={}, iter=0, parition="Train"):
         print(f"{parition:<7} Iter: {iter}", end=" ")
@@ -59,7 +66,7 @@ class Logger:
                 list(self.val_metrics[metric].values()),
                 label=f"val_{metric}",
             )
-            ax.set_xlabel("Epoch")
+            ax.set_xlabel("Outer iters")
             ax.set_ylabel(metric)
             ax.legend()
             fig.savefig(os.path.join(self.work_dir, f"{metric}.png"))
