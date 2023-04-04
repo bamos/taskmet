@@ -60,7 +60,9 @@ class Workspace:
             **dict(self.cfg.model_kwargs),
         )
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=lr, weight_decay=cfg.loss_kwargs.weight_decay
+        )
         self.train_iter = 0
         self.best_val_loss = float("inf")
 

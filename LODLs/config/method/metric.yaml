@@ -4,6 +4,7 @@ loss: 'metric'
 
 loss_kwargs:
     dflalpha: 0.0
+    weight_decay: 0.0
 
 model_kwargs:
     prediction_batchsize: 10

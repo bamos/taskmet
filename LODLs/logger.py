@@ -68,9 +68,11 @@ class Logger:
             )
             ax.set_xlabel("Outer iters")
             ax.set_ylabel(metric)
+            ax.set_yscale("log")
             ax.legend()
             fig.savefig(os.path.join(self.work_dir, f"{metric}.png"))
             ax.cla()
+            plt.close(fig)
 
     def close(self):
         self.plot()
