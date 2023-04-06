@@ -7,7 +7,7 @@ defaults:
 loadnew: False
 iters: 5000
 patience: 100
-valfreq: 50
+valfreq: 10
 seed: 0
 dataset_seed: 0
 pred_model: 'dense'
