@@ -8,7 +8,7 @@ loss_kwargs:
 
 model_kwargs:
     prediction_batchsize: 10
-    implicit_diff_batchsize: 50
+    implicit_diff_batchsize: 10
     implicit_diff_mode: torchopt_normal_cg
     implicit_diff_iters: 5
     predictor_lr: ${pred_lr}
@@ -21,7 +21,7 @@ model_kwargs:
       identity_init: False
       identity_init_scale: 100.
 
-num_inner_iters_init: 5000
+num_inner_iters_init: 500
 num_inner_iters: 100
 pred_lr: 1e-3 # inner loss increases suddenly sometimes with 1e-2
 metric_lr: 1e-3

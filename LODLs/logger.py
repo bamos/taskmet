@@ -5,7 +5,7 @@ import csv
 # Logger object to store the train and validation metrics to be used in workspcae object during training and also enable plotting at the of training
 class Logger:
     def __init__(
-        self, work_dir, filename, print_freq=100, save_freq=10, save_fig_freq=50
+        self, work_dir, filename, print_freq=100, save_freq=1, save_fig_freq=50
     ):
         self.work_dir = work_dir
         self.filename = filename

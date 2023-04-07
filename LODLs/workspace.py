@@ -64,7 +64,7 @@ class Workspace:
             self.model.parameters(), lr=lr, weight_decay=cfg.loss_kwargs.weight_decay
         )
         self.train_iter = 0
-        self.best_val_loss = float("inf")
+        self.best_DQ = -float("inf")
 
     def run(self):
         logger = Logger(os.getcwd(), "log.csv")
@@ -150,9 +150,9 @@ class Workspace:
                 metrics = self.val_metrices(loss_fn, X_val, Y_val, Y_val_aux)
                 logger.log(metrics, iter=self.train_iter, partition="Val")
                 # Save model if it's the best one
-                if metrics["outer_loss"] < self.best_val_loss:
+                if metrics["DQ"] >= self.best_DQ:
                     self.save("best")
-                    self.best_val_loss = metrics["outer_loss"]
+                    self.best_DQ = metrics["DQ"]
                     self.best_iter = self.train_iter
 
             self.optimizer.step()  # putting this after the validation step to avoid using new metric for validation inner loss
@@ -249,13 +249,25 @@ class Workspace:
 
         dq_range = optimal_dq - random_dq
         test_dq = metrics["test"]["objective"]
+        train_dq = metrics["train"]["objective"]
+        val_dq = metrics["val"]["objective"]
+
         normalized_test_dq = (test_dq - random_dq) / dq_range
+        normalized_train_dq = (train_dq - random_dq) / dq_range
+        normalized_val_dq = (val_dq - random_dq) / dq_range
+
+        print(f"Normalized Train Decision Quality: {normalized_train_dq:.2f}")
+        print(f"Normalized Val Decision Quality: {normalized_val_dq:.2f}")
         print(f"Normalized Test Decision Quality: {normalized_test_dq:.2f}")
 
         test_stats = {
             "random_dq_unnorm": random_dq,
             "optimal_dq_unnorm": optimal_dq,
+            "train_dq_unnorm": train_dq,
+            "val_dq_unnorm": val_dq,
             "test_dq_unnorm": test_dq,
+            "train_dq_norm": normalized_train_dq,
+            "val_dq_norm": normalized_val_dq,
             "test_dq_norm": normalized_test_dq,
         }
 
