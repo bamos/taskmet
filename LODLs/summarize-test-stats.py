@@ -61,9 +61,18 @@ df = df.apply(pd.to_numeric, errors="ignore")
 
 print(df)
 
+if "train_dq_norm" in df.columns:
+    print("== mean train DQ")
+    print(df.groupby(["problem", "method"])["train_dq_norm"].agg(["mean", "std"]))
+    print()
+
+if "val_dq_norm" in df.columns:
+    print("== mean val DQ")
+    print(df.groupby(["problem", "method"])["val_dq_norm"].agg(["mean", "std"]))
+    print()
+# print(df.groupby('problem')['test_dq_norm'].agg(['mean', 'std']))
 print("== mean test DQ")
 print(df.groupby(["problem", "method"])["test_dq_norm"].agg(["mean", "std"]))
-# print(df.groupby('problem')['test_dq_norm'].agg(['mean', 'std']))
 
 import ipdb
 
