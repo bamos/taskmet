@@ -79,7 +79,7 @@ class Logger(object):
 	"""Primary logger object. Logs either locally or using wandb."""
 	def __init__(self, log_dir, cfg):
 		self._log_dir = make_dir(log_dir)
-		self._model_dir = make_dir(self._log_dir / 'models')
+		# self._model_dir = make_dir(self._log_dir / 'models')
 		self._save_model = cfg.save_agent
 		self._group = cfg_to_group(cfg)
 		self._seed = cfg.seed

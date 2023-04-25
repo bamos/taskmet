@@ -1,3 +1,4 @@
+import pickle
 import numpy as np
 from functools import partial
 from collections import namedtuple
@@ -444,9 +445,17 @@ class Agent:
               'next_obs_nll': updout_T.next_obs_nll.item()}
 
   def save(self, agent_path):
-    pickle.dump([self.params_Q, self.target_params_Q, self.params_T], 
-                open(agent_path, 'wb'))
+    if FLAGS.agent_type=="metric":
+      pickle.dump([self.params_Q, self.target_params_Q, self.params_T, self.params_metric], 
+                  open(agent_path, 'wb'))
+    else:
+      pickle.dump([self.params_Q, self.target_params_Q, self.params_T], 
+                  open(agent_path, 'wb'))
   
   def load(self, agent_path):
-    self.params_Q, self.target_params_Q, self.params_T = pickle.load(
-      open(agent_path, "rb"))
+    if FLAGS.agent_type=="metric":
+      self.params_Q, self.target_params_Q, self.params_T, self.params_metric = pickle.load(
+        open(agent_path, "rb"))
+    else:
+      self.params_Q, self.target_params_Q, self.params_T = pickle.load(
+        open(agent_path, "rb"))

@@ -4,12 +4,9 @@ import yaml
 import gym
 import numpy as np
 import time
-import pickle
+import pickle as pkl
 from absl import app
 from absl import flags
-import hydra
-from omegaconf import OmegaConf
-import re
 from pathlib import Path
 
 import jax
@@ -21,143 +18,113 @@ from omd import Agent
 from replay_buffer import ReplayBuffer
 from utils import *
 
-FLAGS = flags.FLAGS
-flags.DEFINE_string('exp', 'default', 'Custom description string added to out_dir')
-flags.DEFINE_string('out_dir', 'exp', 'Directory for output files')
-flags.DEFINE_string('data_path', 'data/buf.pkl', 'Path to save buffer')
-flags.DEFINE_string('agent_path', 'data/agent.pkl', 'Path to save agent')
-flags.DEFINE_string('env_name', 'CartPole-v1', 'Gym environment id')
-flags.DEFINE_integer('seed', 0, 'Random seed')
-flags.DEFINE_integer('num_train_steps', 200000, 'Env steps num', lower_bound=0)
-flags.DEFINE_integer('hidden_dim', 32, 'Size of hidden layers', lower_bound=1)
-flags.DEFINE_integer('model_hidden_dim', 32, 'Model-specific', lower_bound=1)
-flags.DEFINE_integer('batch_size', 256, 'Mini-batch samples', lower_bound=1)
-flags.DEFINE_integer('init_steps', 1000, 'Steps before training', lower_bound=0)
-flags.DEFINE_integer('eval_frequency', 1000, 'Agent evaluation', lower_bound=1)
-flags.DEFINE_integer('log_frequency', 1000, 'Logging frequency', lower_bound=1)
-flags.DEFINE_integer('num_Q_steps', 1, 'Inner loop steps num', lower_bound=1)
-flags.DEFINE_integer('num_T_steps', 1, 'Model steps per update', lower_bound=1)
-flags.DEFINE_integer('num_ensemble_vep', 5, 'Value functions #', lower_bound=1)
-flags.DEFINE_float('eps', 0.1, 'Random action probability')
-flags.DEFINE_float('discount', 0.99, 'Sum of rewards discount factor')
-flags.DEFINE_float('lr', 1e-3, '(Outer loop) learning rate')
-flags.DEFINE_float('inner_lr', 3e-4, 'Inner loop learning rate')
-flags.DEFINE_float('metric_lr', 1e-3, 'Model learning rate')
-flags.DEFINE_float('alpha', 0.01, 'Temperature')
-flags.DEFINE_float('tau', 0.01, 'Target network update coefficient')
-flags.DEFINE_boolean('save_buf', False, 'Save collected buffer with data')
-flags.DEFINE_boolean('save_agent', False, 'Save the agent after training')
-flags.DEFINE_boolean('hard', False, 'max vs logsumexp for Q learning')
-flags.DEFINE_boolean('no_learn_reward', False, 'Use trainable or true rewards')
-flags.DEFINE_boolean('prob_model', False, 'Gaussian vs deterministic next obs')
-flags.DEFINE_boolean('no_warm', False, 'Not use previous Q* in the inner loop')
-flags.DEFINE_boolean('warm_opt', False, 'Reuse inner loop optimizer statistics')
-flags.DEFINE_boolean('no_double', False, 'Not use Double Q Learning')
-flags.DEFINE_boolean('with_inv_jac', False, 
-  'Replaces inverse Jacobian in implicit gradient with identity matrix')
-flags.DEFINE_enum('agent_type', 'omd', ['omd', 'mle', 'vep', 'metric'], 'Agent type')
-flags.DEFINE_integer('dim_distract', 0, 'Number of distracting states.')
-flags.DEFINE_string('use_wandb', 'False', 'Use wandb for logging')
-flags.DEFINE_string('wandb_project', 'none', 'Wandb project name')
-flags.DEFINE_string('wandb_entity', 'none', 'Wandb entity name')
+class Workspace(object):
+  def __init__(self, cfg):
+    self.cfg = cfg
+    wrapper(cfg)
+    self.env = gym.make(FLAGS.env_name)
+    self.max_episode_steps = self.env._max_episode_steps
+    self.eval_env = gym.make(FLAGS.env_name)
+    if FLAGS.dim_distract > 0:
+      print("Adding {} distractors".format(FLAGS.dim_distract))
+      self.env  = AddDistractors(self.env, dim_distract=FLAGS.dim_distract)
+      self.eval_env  = AddDistractors(self.eval_env, dim_distract=FLAGS.dim_distract)
 
+    for e in [self.eval_env, self.env]:
+      e.seed(FLAGS.seed)
+      e.action_space.seed(FLAGS.seed)
+      e.observation_space.seed(FLAGS.seed)
+    np.random.seed(FLAGS.seed)
+    self.rngs = hk.PRNGSequence(FLAGS.seed)
+    
+    self.agent = Agent(self.env.observation_space, self.env.action_space)
+    self.replay_buffer = ReplayBuffer(self.env.observation_space.shape, FLAGS.num_train_steps)
 
-def main_function(cfg):
-  wrapper(cfg)
-  env = gym.make(FLAGS.env_name)
-  max_episode_steps = env._max_episode_steps
-  eval_env = gym.make(FLAGS.env_name)
-  if FLAGS.dim_distract > 0:
-    print("Adding distractors")
-    env  = AddDistractors(env, dim_distract=FLAGS.dim_distract)
-    eval_env  = AddDistractors(eval_env, dim_distract=FLAGS.dim_distract)
-
-  for e in [eval_env, env]:
-    e.seed(FLAGS.seed)
-    e.action_space.seed(FLAGS.seed)
-    e.observation_space.seed(FLAGS.seed)
-  np.random.seed(FLAGS.seed)
-  rngs = hk.PRNGSequence(FLAGS.seed)
+    # FLAGS.out_dir = os.path.join(FLAGS.out_dir, time.strftime("%d%H%M"))
+    FLAGS.out_dir = os.path.join(FLAGS.out_dir, FLAGS.exp, FLAGS.agent_type, str(FLAGS.seed))
+    os.makedirs(FLAGS.out_dir, exist_ok=True)
+    self.logger = Logger(Path(FLAGS.out_dir), cfg)
+    
+    self.step, self.episode = 0, 0
   
-  agent = Agent(env.observation_space, env.action_space)
-  replay_buffer = ReplayBuffer(env.observation_space.shape, FLAGS.num_train_steps)
-
-  # FLAGS.out_dir = os.path.join(FLAGS.out_dir, time.strftime("%d%H%M"))
-  FLAGS.out_dir = os.path.join(FLAGS.out_dir, FLAGS.exp, FLAGS.agent_type, str(FLAGS.seed))
-  os.makedirs(FLAGS.out_dir, exist_ok=True)
-  logger = Logger(Path(FLAGS.out_dir), cfg)
-  
-  step, episode = 0, 0
-  episode_return, episode_step = 0, 0
-  done = False
-  obs = env.reset()
-  action = agent.act(agent.params_Q, obs, next(rngs))
-  start_time = time.time()
-  common_metrics = {
-    "episode": episode,
-    "step": step,
-    "total_time": time.time() - start_time,
-  }
-  print("Beginning of training")
-  while step < FLAGS.num_train_steps:
-    common_metrics.update({
-      "episode": episode,
-      "step": step,
+  def run(self):
+    episode_return, episode_step = 0, 0
+    done = False
+    obs = self.env.reset()
+    action = self.agent.act(self.agent.params_Q, obs, next(self.rngs))
+    start_time = time.time()
+    common_metrics = {
+      "episode": self.episode,
+      "step": self.step,
       "total_time": time.time() - start_time,
-    })
-    # evaluate agent periodically
-    if step % FLAGS.eval_frequency == 0:
-      common_metrics["episode_reward"] = evaluate(agent, eval_env, next(rngs))
-      logger.log(common_metrics, "eval")
-      # print(agent.params_metric)
+    }
+    print("Beginning of training")
+    while self.step < FLAGS.num_train_steps:
+      common_metrics.update({
+        "episode": self.episode,
+        "step": self.step,
+        "total_time": time.time() - start_time,
+      })
+      # evaluate self.agent periodically
+      if self.step % FLAGS.eval_frequency == 0:
+        common_metrics["episode_reward"] = evaluate(self.agent, self.eval_env, next(self.rngs))
+        self.logger.log(common_metrics, "eval")
+        # print(self.agent.params_metric)
 
-    # with epsilon exploration
-    action = env.action_space.sample() if (np.random.rand() < FLAGS.eps or step < FLAGS.init_steps) else action.item()
-    next_obs, reward, done, _ = env.step(action)
+      # with epsilon exploration
+      action = self.env.action_space.sample() if (np.random.rand() < FLAGS.eps or self.step < FLAGS.init_steps) else action.item()
+      next_obs, reward, done, _ = self.env.step(action)
 
-    done = float(done)
-    # allow infinite bootstrap
-    done_no_max = 0 if episode_step + 1 == max_episode_steps else done
-    episode_return += reward
+      done = float(done)
+      # allow infinite bootstrap
+      done_no_max = 0 if episode_step + 1 == self.max_episode_steps else done
+      episode_return += reward
 
-    replay_buffer.add(obs, action, reward, next_obs, done, done_no_max)
+      self.replay_buffer.add(obs, action, reward, next_obs, done, done_no_max)
+      
+      obs = next_obs
+      episode_step += 1
+      self.step += 1
+      
+      if done:
+        common_metrics["episode_reward"] = episode_return
+        obs = self.env.reset()
+        done = False
+        episode_return = 0
+        episode_step = 0
+        self.episode += 1
+
+      action = self.agent.act(self.agent.params_Q, obs, next(self.rngs))
+          
+      losses_dict = {}
+      if self.step >= FLAGS.init_steps:
+        losses_dict = self.agent.update(self.replay_buffer)
+        common_metrics["step"] = self.step
+        losses_dict.update(common_metrics)
+
+      if self.step % FLAGS.log_frequency == 0:
+        self.logger.log(losses_dict, "train")
+        self.save()
     
-    obs = next_obs
-    episode_step += 1
-    step += 1
-    
-    if done:
-      common_metrics["episode_reward"] = episode_return
-      obs = env.reset()
-      done = False
-      episode_return = 0
-      episode_step = 0
-      episode += 1
+    # final eval after training is done
+    common_metrics["episode_reward"] = evaluate(self.agent, self.eval_env, next(self.rngs))
+    self.logger.log(common_metrics, "eval")
 
-    action = agent.act(agent.params_Q, obs, next(rngs))
-        
-    losses_dict = {}
-    if step >= FLAGS.init_steps:
-      losses_dict = agent.update(replay_buffer)
-      common_metrics["step"] = step
-      losses_dict.update(common_metrics)
+    print("Done in {:.1f} minutes".format((time.time() - start_time)/60))
 
-    if step % FLAGS.log_frequency == 0:
-      logger.log(losses_dict, "train")
-  
-  # final eval after training is done
-  common_metrics["episode_reward"] = evaluate(agent, eval_env, next(rngs))
-  logger.log(common_metrics, "eval")
+  def save(self, tag="latest"):
+    self.agent.save(os.path.join(FLAGS.out_dir, f"{tag}.pkl"))
+    # path = os.path.join(FLAGS.out_dir, f"{tag}.pkl")
+    # with open(path, "wb") as f:
+    #   pkl.dump(self, f)
 
+  def load(self, tag="latest"):
+    self.agent.load(os.path.join(FLAGS.out_dir, f"{tag}.pkl"))
 
-  print("Done in {:.1f} minutes".format((time.time() - start_time)/60))
-
-def save_config(FLAGS):
-  config = FLAGS.flag_values_dict()
-  # save in a yaml file
-  with open(os.path.join(FLAGS.out_dir, 'config.yaml'), 'w') as f:
-    yaml.dump(config, f, default_flow_style=False)
-
+  # @classmethod
+  # def load(cls, path):
+  #   with open(path, "rb") as f:
+  #     return pkl.load(f)
 
 def wrapper(cfg):
   FLAGS = flags.FLAGS
@@ -168,16 +135,4 @@ def wrapper(cfg):
   return 
 
 
-if __name__ == '__main__':
-  def parse_cfg(cfg_path: str) -> OmegaConf:
-    """Parses a config file and returns an OmegaConf object."""
-    base = OmegaConf.load(cfg_path / 'default.yaml')
-    cli = OmegaConf.from_cli()
-    for k,v in cli.items():
-      if v == None:
-        cli[k] = True
-    base.merge_with(cli)
-    return base
-  
-  main_function(parse_cfg(Path().cwd() / "config"))
-  # app.run(main_function)
+

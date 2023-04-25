@@ -187,15 +187,6 @@ def net_fn(net_type, dims, x):
     mlp = hk.Sequential(layers)
     return mlp(x)
 
-# class ConstantDiagMetric(hk.Module):
-#   def __init__(self, obs_dim, name=None):
-#     super().__init__(name=name)
-#     self.obs_dim = obs_dim
-
-#   def __call__(self, x):
-#     theta = hk.get_parameter('theta', shape=(self.obs_dim,), init=hk.initializers.Constant(1.0))
-#     return jnp.diag(theta)
-
 def init_net_opt(net_type, dims):
   net = hk.without_apply_rng(hk.transform(partial(net_fn, net_type, dims)))
   if net_type == 'Q':
