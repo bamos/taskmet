@@ -56,6 +56,11 @@ class Agent:
       self.params_metric = self.metric.net.init(next(self.rngs), demo_obs)
       self.opt_state_metric = self.metric.opt.init(self.params_metric)
 
+  def getmetric(self, obs=None, action=None):
+    if obs is None:
+      obs = jnp.ones((1, self.obs_dim))
+    return self.metric.net.apply(self.params_metric, obs)
+
   @partial(jax.jit, static_argnums=(0,))
   def act(self, params_Q, obs, rng):
     obs = jnp.array(obs) if isinstance(obs, list) else obs[None, ...] 
@@ -147,6 +152,7 @@ class Agent:
     return mse_Q, aux_out
 
   def loss_mle(self, params_T, batch, rng):
+    print('loss_mle')
     obs, action, reward, next_obs, not_done, not_done_no_max = batch
     pred, means, logstds, reward_pred = self.model_pred(params_T, obs, action, rng)
     assert next_obs.ndim == pred.ndim  # no undesired broadcasting
@@ -163,11 +169,14 @@ class Agent:
     metric_pred = self.metric.net.apply(params_metric, obs)
     assert next_obs.ndim == pred.ndim  # no undesired broadcasting
     
-    nll = nll_loss(next_obs, means, logstds) if FLAGS.prob_model else metric_loss(pred, next_obs, metric_pred)
+    nll = metric_loss(pred, next_obs, metric_pred)
+    mse = mse_loss(pred, next_obs)
     if not FLAGS.no_learn_reward:
       assert reward_pred.ndim == reward.ndim  # no undesired broadcasting
       nll += ((reward_pred - reward) ** 2).mean()
-    return nll
+
+    AuxReturn = namedtuple('AuxOut', 'loss_T_mse')
+    return nll, AuxReturn(mse)
 
   def loss_vep(self, params_T, aux_params, batch, rng):
     assert not FLAGS.prob_model
@@ -202,7 +211,7 @@ class Agent:
     '''Parameterized by Metric function giving grad_T (metric) = 0 constraint.
     '''
     # replay_model, _ = self.batch_real_to_model(params_T, replay, rng)
-    grads = jax.grad(self.loss_metric_mle, has_aux=False)(
+    grads, aux_out = jax.grad(self.loss_metric_mle, has_aux=True)(
       params_T, params_metric, replay, rng)
     return grads
 
@@ -242,8 +251,8 @@ class Agent:
       params_T, opt_state_T = updout.params_T, updout.opt_state_T
 
     Sol = namedtuple('Sol', 
-      'params_T loss_metric opt_state_T grad_norm_T')
-    return Sol(params_T, updout.loss_metric, opt_state_T, updout.grad_norm_T)
+      'params_T loss_metric opt_state_T grad_norm_T loss_T_mse')
+    return Sol(params_T, updout.loss_metric, opt_state_T, updout.grad_norm_T, updout.loss_T_mse)
 
   def loss_omd(self, params_T, aux_params, batch, replay):
     fwd_solver = lambda constraint_func, params_Q, params_T, replay, rng: self.fwd_solver(
@@ -306,18 +315,22 @@ class Agent:
       new_params = optax.apply_updates(params, updates)
 
       UpdOut = namedtuple('Upd_{}'.format(loss_type),
-        'loss_T params_metric opt_state_metric \
+        'loss_T params_metric \
+        grad_norm_metric opt_state_metric \
         params_T opt_state_T \
         loss_Q vals_Q grad_norm_Q \
         entropy_Q params_Q \
         target_params_Q opt_state_Q \
-        next_obs_nll loss_metric')
-      return UpdOut(value, new_params, opt_state, 
+        next_obs_nll loss_metric \
+        loss_T_mse grad_norm_T')
+      return UpdOut(value, new_params, 
+                    tree_norm(grads), opt_state, 
                     aux_out.params_T, aux_out.opt_state_T, 
                     aux_out.loss_Q, aux_out.vals_Q, aux_out.grad_norm_Q, 
                     aux_out.entropy_Q, aux_out.params_Q, 
                     aux_out.target_params_Q, aux_out.opt_state_Q,
-                    aux_out.next_obs_nll, aux_out.loss_metric)
+                    aux_out.next_obs_nll, aux_out.loss_metric, 
+                    aux_out.loss_T_mse, aux_out.grad_norm_T)
     
     elif loss_type == 'sql':
       (value, aux_out), grads = value_and_grad(self.loss_Q, has_aux=True)(
@@ -338,14 +351,13 @@ class Agent:
       return UpdOut(value, new_params, opt_state)
 
     elif loss_type == "metric_mle":
-      value, grads = value_and_grad(self.loss_metric_mle)(
+      (value, aux_out), grads = value_and_grad(self.loss_metric_mle, has_aux=True)(
         params, aux_params.params_metric, replay, aux_params.rng)
-      updates, opt_state = self.metric.opt.update(grads, opt_state)
+      updates, opt_state = self.T.opt.update(grads, opt_state)
       new_params = optax.apply_updates(params, updates)
       UpdOut = namedtuple('Upd_{}'.format(loss_type),
-        'loss_metric params_T opt_state_T grad_norm_T')
-      return UpdOut(value, new_params, opt_state, tree_norm(grads))
-
+        'loss_metric params_T opt_state_T grad_norm_T loss_T_mse')
+      return UpdOut(value, new_params, opt_state, tree_norm(grads), aux_out.loss_T_mse)
 
     elif loss_type == "vep":
       (value, aux_out), grads = value_and_grad(self.loss_vep, has_aux=True)(
@@ -356,7 +368,7 @@ class Agent:
         'loss_T params_T opt_state_T next_obs_nll')
       return UpdOut(value, new_params, opt_state, aux_out.next_obs_nll)
 
-  def update(self, replay_buffer):
+  def update(self, replay_buffer, update_metric=True):
     replay = replay_buffer.sample(FLAGS.batch_size)
     
     if FLAGS.agent_type == 'omd':
@@ -378,7 +390,6 @@ class Agent:
               'next_obs_nll': updout.next_obs_nll.item()}
     
     elif FLAGS.agent_type == 'metric':
-      # print("Updating metric")
       if FLAGS.no_warm:
         aux_params = AuxM(None, None, None, None, None, next(self.rngs))
       else:
@@ -389,13 +400,19 @@ class Agent:
       self.params_Q, self.opt_state_Q = updout.params_Q, updout.opt_state_Q
       self.target_params_Q = updout.target_params_Q
       self.params_T, self.opt_state_T = updout.params_T, updout.opt_state_T
-      self.params_metric, self.opt_state_metric = updout.params_metric, updout.opt_state_metric
+      if update_metric:
+        self.params_metric, self.opt_state_metric = updout.params_metric, updout.opt_state_metric
       return {'loss_T': updout.loss_T.item(), 
               'vals_Q': updout.vals_Q.item(), 
               'loss_Q': updout.loss_Q.item(), 
               'grad_norm_Q': updout.grad_norm_Q.item(), 
               'entropy_Q': updout.entropy_Q.item(),
-              'next_obs_nll': updout.next_obs_nll.item()}
+              'next_obs_nll': updout.next_obs_nll.item(),
+              'loss_T_mse': updout.loss_T_mse.item(),
+              'grad_norm_T': updout.grad_norm_T.item(),
+              'loss_metric': updout.loss_metric.item(),
+              'grad_norm_metric': updout.grad_norm_metric.item(),
+              'metric_vals': np.array(self.getmetric())}
 
     elif FLAGS.agent_type == 'mle':
       for i in range(FLAGS.num_T_steps):
@@ -409,12 +426,12 @@ class Agent:
         replay = replay_buffer.sample(FLAGS.batch_size)
         replay_model, nll = self.batch_real_to_model(self.params_T, replay, next(self.rngs))
         updout_Q = self.update_step(self.params_Q, self.target_params_Q, 
-          self.opt_state_Q, None, replay_model, 'sql')    
+          self.opt_state_Q, None, replay_model, 'sql')
         self.params_Q, self.opt_state_Q = updout_Q.params_Q, updout_Q.opt_state_Q
         self.target_params_Q = soft_update_params(
           FLAGS.tau, self.params_Q, self.target_params_Q)
 
-      return {'loss_T': updout_T.loss_T.item(), 
+      return {'loss_T_mse': updout_T.loss_T.item(), 
               'vals_Q': updout_Q.vals_Q.item(), 
               'loss_Q': updout_Q.loss_Q.item(), 
               'grad_norm_Q': updout_Q.grad_norm_Q.item(), 

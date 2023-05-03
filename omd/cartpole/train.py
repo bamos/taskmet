@@ -4,7 +4,7 @@ import yaml
 import gym
 import numpy as np
 import time
-import pickle as pkl
+import cloudpickle as pkl
 from absl import app
 from absl import flags
 from pathlib import Path
@@ -44,7 +44,8 @@ class Workspace(object):
     FLAGS.out_dir = os.path.join(FLAGS.out_dir, FLAGS.exp, FLAGS.agent_type, str(FLAGS.seed))
     os.makedirs(FLAGS.out_dir, exist_ok=True)
     self.logger = Logger(Path(FLAGS.out_dir), cfg)
-    
+    self.best_step = 0
+    self.best_return = -np.inf
     self.step, self.episode = 0, 0
   
   def run(self):
@@ -53,23 +54,31 @@ class Workspace(object):
     obs = self.env.reset()
     action = self.agent.act(self.agent.params_Q, obs, next(self.rngs))
     start_time = time.time()
-    common_metrics = {
+    train_metrics = {
       "episode": self.episode,
       "step": self.step,
       "total_time": time.time() - start_time,
     }
     print("Beginning of training")
     while self.step < FLAGS.num_train_steps:
-      common_metrics.update({
+      train_metrics.update({
         "episode": self.episode,
         "step": self.step,
         "total_time": time.time() - start_time,
       })
       # evaluate self.agent periodically
       if self.step % FLAGS.eval_frequency == 0:
-        common_metrics["episode_reward"] = evaluate(self.agent, self.eval_env, next(self.rngs))
-        self.logger.log(common_metrics, "eval")
-        # print(self.agent.params_metric)
+        eval_metrics = {
+          "episode": self.episode,
+          "step": self.step,
+          "total_time": time.time() - start_time,
+        }
+        eval_metrics["episode_reward"] = evaluate(self.agent, self.eval_env, next(self.rngs))
+        self.logger.log(eval_metrics, "eval")
+        if eval_metrics["episode_reward"] >= self.best_return:
+          self.best_return = eval_metrics["episode_reward"]
+          self.best_step = self.step
+          self.save("best")
 
       # with epsilon exploration
       action = self.env.action_space.sample() if (np.random.rand() < FLAGS.eps or self.step < FLAGS.init_steps) else action.item()
@@ -87,7 +96,7 @@ class Workspace(object):
       self.step += 1
       
       if done:
-        common_metrics["episode_reward"] = episode_return
+        train_metrics["episode_reward"] = episode_return
         obs = self.env.reset()
         done = False
         episode_return = 0
@@ -96,35 +105,37 @@ class Workspace(object):
 
       action = self.agent.act(self.agent.params_Q, obs, next(self.rngs))
           
+      train_metrics["step"] = self.step
       losses_dict = {}
       if self.step >= FLAGS.init_steps:
-        losses_dict = self.agent.update(self.replay_buffer)
-        common_metrics["step"] = self.step
-        losses_dict.update(common_metrics)
+        update_metric = True if self.step>=FLAGS.metric_warmup_steps else False
+        losses_dict = self.agent.update(self.replay_buffer, update_metric=update_metric)
+      train_metrics.update(losses_dict)
 
       if self.step % FLAGS.log_frequency == 0:
-        self.logger.log(losses_dict, "train")
-        self.save()
+        # print(self.agent.getmetric())
+        self.logger.log(train_metrics, "train")
+        self.save("{}".format(self.step))
     
     # final eval after training is done
-    common_metrics["episode_reward"] = evaluate(self.agent, self.eval_env, next(self.rngs))
-    self.logger.log(common_metrics, "eval")
+    eval_metrics["episode_reward"] = evaluate(self.agent, self.eval_env, next(self.rngs))
+    self.logger.log(eval_metrics, "eval")
 
     print("Done in {:.1f} minutes".format((time.time() - start_time)/60))
 
   def save(self, tag="latest"):
-    self.agent.save(os.path.join(FLAGS.out_dir, f"{tag}.pkl"))
-    # path = os.path.join(FLAGS.out_dir, f"{tag}.pkl")
-    # with open(path, "wb") as f:
-    #   pkl.dump(self, f)
+    # self.agent.save(os.path.join(FLAGS.out_dir, f"{tag}.pkl"))
+    path = os.path.join(FLAGS.out_dir, f"{tag}.pkl")
+    with open(path, "wb") as f:
+      pkl.dump(self, f)
 
-  def load(self, tag="latest"):
-    self.agent.load(os.path.join(FLAGS.out_dir, f"{tag}.pkl"))
+  # def load(self, tag="latest"):
+  #   self.agent.load(os.path.join(FLAGS.out_dir, f"{tag}.pkl"))
 
-  # @classmethod
-  # def load(cls, path):
-  #   with open(path, "rb") as f:
-  #     return pkl.load(f)
+  @classmethod
+  def load(cls, path):
+    with open(path, "rb") as f:
+      return pkl.load(f)
 
 def wrapper(cfg):
   FLAGS = flags.FLAGS

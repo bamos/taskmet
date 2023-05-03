@@ -7,8 +7,9 @@ import pandas as pd
 from termcolor import colored
 from omegaconf import OmegaConf
 
-
-CONSOLE_FORMAT = [('episode', 'E', 'int'), ('step', 'S', 'int'), ('episode_reward', 'R', 'float'), ('total_time', 'T', 'time')]
+CONSOLE_FORMAT = [('episode', 'E', 'int'), ('step', 'S', 'int'), ('episode_reward', 'R', 'float'), ('loss_T', 'loss_T', 'exp'), 
+		  		('loss_Q', 'loss_Q', 'exp'),('loss_T_mse', 'loss_T_mse', 'exp'),('grad_norm_Q', 'grad_norm_Q', 'exp'),
+				('grad_norm_T', 'grad_norm_T', 'exp'),('grad_norm_metric', 'grad_norm_metric', 'exp'),('metric_vals', 'metric', 'list') ,('total_time', 'T', 'time')]
 AGENT_METRICS = ['consistency_loss', 'reward_loss', 'value_loss', 'total_loss', 'weighted_loss', 'pi_loss', 'grad_norm']
 
 
@@ -45,7 +46,7 @@ def print_run(cfg, reward=None):
 
 def cfg_to_group(cfg, return_list=False):
 	"""Return a wandb-safe group name for logging. Optionally returns group name as list."""
-	lst = [cfg.agent_type, cfg.exp]
+	lst = [cfg.exp, cfg.agent_type]
 	return lst if return_list else '-'.join(lst)
 
 
@@ -130,8 +131,12 @@ class Logger(object):
 			return f'{colored(key+":", "grey")} {int(value):,}'
 		elif ty == 'float':
 			return f'{colored(key+":", "grey")} {value:.01f}'
+		elif ty == 'exp':
+			return f'{colored(key+":", "grey")} {value:.2e}'
 		elif ty == 'time':
 			value = str(datetime.timedelta(seconds=int(value)))
+			return f'{colored(key+":", "grey")} {value}'
+		elif ty=='list':
 			return f'{colored(key+":", "grey")} {value}'
 		else:
 			raise f'invalid log format type: {ty}'
@@ -140,7 +145,7 @@ class Logger(object):
 		category = colored(category, 'blue' if category == 'train' else 'green')
 		pieces = [f' {category:<14}']
 		for k, disp_k, ty in CONSOLE_FORMAT:
-			pieces.append(f'{self._format(disp_k, d.get(k, 0), ty):<26}')
+			pieces.append(f'{self._format(disp_k, d.get(k, 0), ty):<15}')
 		print('   '.join(pieces))
 
 	def log(self, d, category='train'):

@@ -34,8 +34,6 @@ class AddDistractors(gym.ObservationWrapper):
         return np.concatenate(
             (observation, np.random.randn(self.dim_distract)))
 
-
-
 def evaluate(agent, eval_env, rng, num_eval_episodes=10):
   average_episode_reward = 0
   for episode in range(num_eval_episodes):
@@ -71,7 +69,7 @@ def root_solve_bwd(param_func, solvers, res, g):
     # (J)^-1 -> (J+cI)^-1
     _, vds_fun = jax.vjp(lambda x: jax.tree_multimap(
       lambda y,z: y + 1e-5*z, param_func(params, x, replay, rng, tpQ), x), pQ)
-    vdsinv = cg(lambda z: vds_fun(z)[0], g_main, maxiter=100)[0]
+    vdsinv = cg(lambda z: vds_fun(z)[0], g_main, maxiter=FLAGS.cg_iters)[0]
     vdp = vdp_fun(vdsinv)[0]
   else:
     vdp = vdp_fun(g_main)[0]
@@ -94,12 +92,12 @@ def dynamics_root_solve_bwd(param_func, solvers, res, g):
   pT, params, replay, rng = res
   _, vdp_fun = jax.vjp(lambda y: param_func(y, pT, replay, rng), params)
   g_main = g[0] if isinstance(g, tuple) else g
-  if FLAGS.with_inv_jac:
+  if FLAGS.with_inv_jac_model:
     # _, vds_fun = jax.vjp(lambda x: param_func(params, x), pT)
     # (J)^-1 -> (J+cI)^-1
     _, vds_fun = jax.vjp(lambda x: jax.tree_multimap(
       lambda y,z: y + 1e-5*z, param_func(params, x, replay, rng), x), pT)
-    vdsinv = cg(lambda z: vds_fun(z)[0], g_main, maxiter=100)[0]
+    vdsinv = cg(lambda z: vds_fun(z)[0], g_main, maxiter=FLAGS.cg_iters)[0]
     vdp = vdp_fun(vdsinv)[0]
   else:
     vdp = vdp_fun(g_main)[0]
@@ -158,7 +156,8 @@ def net_fn(net_type, dims, x):
   elif net_type == 'metric':
     out_dim = obs_dim
     # metric_init = hk.initializers.Orthogonal(scale=1.0)
-    # layers += [hk.Linear(out_dim*out_dim, w_init=final_init, b_init=hk.initializers.Constant(1.0))]
+    layers = [hk.Linear(hidden_dim, w_init=init), activation,
+              hk.Linear(out_dim, w_init=final_init, b_init=hk.initializers.Constant(1.0))]
     # layers += [hk.Reshape((out_dim, out_dim))]
 
   if net_type == 'Q' and not FLAGS.no_double:
@@ -178,10 +177,14 @@ def net_fn(net_type, dims, x):
     mlp1, mlp2 = hk.Sequential(layers), hk.Sequential(layers2)
     return mlp1(x), mlp2(x)
   elif net_type == 'metric':
+    x = jnp.ones((1, obs_dim))
     # mlp = hk.Sequential(layers)
-    # # TODO: make this in to matrix
     # return mlp(x)@mlp(x).transpose((0, 2, 1))
     metric = hk.get_parameter('metric', shape=(out_dim,), init=hk.initializers.Constant(1.0))
+    # metric = hk.Sequential(layers)(x)
+    metric = jax.nn.softplus(metric)
+    # metric = jax.nn.sigmoid(metric)
+    metric = metric/jnp.linalg.norm(metric)*jnp.sqrt(out_dim) # normalize to sqrt(dim(obs)) norm
     return jnp.diag(metric)
   else:
     mlp = hk.Sequential(layers)
@@ -190,9 +193,19 @@ def net_fn(net_type, dims, x):
 def init_net_opt(net_type, dims):
   net = hk.without_apply_rng(hk.transform(partial(net_fn, net_type, dims)))
   if net_type == 'Q':
-    opt = optax.adam(FLAGS.inner_lr)
+    if FLAGS.q_grad_clip:
+      print('Using gradient clipping for Q')
+      opt = optax.chain(optax.clip_by_global_norm(FLAGS.q_grad_clip), 
+                        optax.adam(FLAGS.inner_lr))
+    else:
+      opt = optax.adam(FLAGS.inner_lr)
   elif net_type == 'metric':
-    opt = optax.adam(FLAGS.metric_lr)
+    if FLAGS.metric_grad_clip:
+      print('Using gradient clipping for metric')
+      opt = optax.chain(optax.clip_by_global_norm(FLAGS.metric_grad_clip), 
+                        optax.adam(FLAGS.metric_lr))
+    else:
+      opt = optax.adam(FLAGS.metric_lr)
   else:
     opt = optax.adam(FLAGS.lr)
   Model = namedtuple(net_type, 'net opt')
