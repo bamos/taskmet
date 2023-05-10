@@ -93,6 +93,7 @@ def dynamics_root_solve_bwd(param_func, solvers, res, g):
   _, vdp_fun = jax.vjp(lambda y: param_func(y, pT, replay, rng), params)
   g_main = g[0] if isinstance(g, tuple) else g
   if FLAGS.with_inv_jac_model:
+    # assert False # (use jaxopt in omd.py now)
     # _, vds_fun = jax.vjp(lambda x: param_func(params, x), pT)
     # (J)^-1 -> (J+cI)^-1
     _, vds_fun = jax.vjp(lambda x: jax.tree_multimap(

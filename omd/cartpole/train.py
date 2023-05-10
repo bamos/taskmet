@@ -36,7 +36,7 @@ class Workspace(object):
       e.observation_space.seed(FLAGS.seed)
     np.random.seed(FLAGS.seed)
     self.rngs = hk.PRNGSequence(FLAGS.seed)
-    
+
     self.agent = Agent(self.env.observation_space, self.env.action_space)
     self.replay_buffer = ReplayBuffer(self.env.observation_space.shape, FLAGS.num_train_steps)
 
@@ -49,7 +49,7 @@ class Workspace(object):
     self.best_step = 0
     self.best_return = -np.inf
     self.step, self.episode = 0, 0
-  
+
   def run(self):
     if FLAGS.agent_type == 'metric' and FLAGS.use_wandb:
       tbl = self.logger._wandb.Table(columns=[str(i+1) for i in range(self.env.observation_space.shape[0])])
@@ -94,11 +94,11 @@ class Workspace(object):
       episode_return += reward
 
       self.replay_buffer.add(obs, action, reward, next_obs, done, done_no_max)
-      
+
       obs = next_obs
       episode_step += 1
       self.step += 1
-      
+
       if done:
         train_metrics["episode_reward"] = episode_return
         obs = self.env.reset()
@@ -108,7 +108,7 @@ class Workspace(object):
         self.episode += 1
 
       action = self.agent.act(self.agent.params_Q, obs, next(self.rngs))
-          
+
       train_metrics["step"] = self.step
       losses_dict = {}
       if self.step >= FLAGS.init_steps:
@@ -118,12 +118,12 @@ class Workspace(object):
       train_metrics.update(losses_dict)
 
       if self.step % FLAGS.log_frequency == 0:
-        if FLAGS.agent_type == 'metric' and self.step >= FLAGS.init_steps:
+        if FLAGS.agent_type == 'metric' and self.step >= FLAGS.init_steps and FLAGS.use_wandb:
           tbl.add_data(*losses_dict['metric_vals'])
         self.logger.log(train_metrics, "train")
         if self.step % FLAGS.model_log_frequency == 0:
           self.save("{}".format(self.step))
-    
+
     # final eval after training is done
     eval_metrics["episode_reward"] = evaluate(self.agent, self.eval_env, next(self.rngs))
     eval_metrics["step"] = self.step
@@ -135,9 +135,9 @@ class Workspace(object):
       self.best_step = self.step
       self.save("best")
 
-    if FLAGS.agent_type == 'metric':
+    if FLAGS.agent_type == 'metric' and FLAGS.use_wandb:
       self.logger._wandb.log({'metric_vals': tbl})
-    
+
     print("Done in {:.1f} minutes".format((time.time() - start_time)/60))
 
   def save(self, tag="latest"):
@@ -160,7 +160,4 @@ def wrapper(cfg):
   for k, v in cfg.items():
     if k in FLAGS:
       FLAGS[k].value = v
-  return 
-
-
-
+  return
