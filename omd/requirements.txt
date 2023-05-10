@@ -7,10 +7,11 @@ absl-py==0.12.0
 gdown
 termcolor
 tqdm==4.60.0
-flax==0.3.3
-jax==0.2.9
-jaxlib==0.1.60
+# flax==0.3.3
+# jax==0.2.9
+# jaxlib==0.1.60
 # jaxlib for CUDA
+# for jaxopt==0.6: jax==0.2.19, jaxlib==0.1.69
 ml_collections==0.1.0
 optax==0.0.6
 chex==0.0.9
