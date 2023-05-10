@@ -51,7 +51,7 @@ class Workspace(object):
     self.step, self.episode = 0, 0
   
   def run(self):
-    if FLAGS.agent_type == 'metric':
+    if FLAGS.agent_type == 'metric' and FLAGS.use_wandb:
       tbl = self.logger._wandb.Table(columns=[str(i+1) for i in range(self.env.observation_space.shape[0])])
     episode_return, episode_step = 0, 0
     done = False
