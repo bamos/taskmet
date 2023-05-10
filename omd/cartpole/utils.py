@@ -178,14 +178,21 @@ def net_fn(net_type, dims, x):
     return mlp1(x), mlp2(x)
   elif net_type == 'metric':
     x = jnp.ones((1, obs_dim))
-    # mlp = hk.Sequential(layers)
-    # return mlp(x)@mlp(x).transpose((0, 2, 1))
-    metric = hk.get_parameter('metric', shape=(out_dim,), init=hk.initializers.Constant(1.0))
     # metric = hk.Sequential(layers)(x)
-    metric = jax.nn.softplus(metric)
-    # metric = jax.nn.sigmoid(metric)
-    metric = metric/jnp.linalg.norm(metric)*jnp.sqrt(out_dim) # normalize to sqrt(dim(obs)) norm
+    metric = hk.get_parameter('metric', shape=(out_dim,), init=hk.initializers.Constant(1.0))
+
+    if FLAGS.metric_activation == 'normalize':
+      metric = jax.nn.softplus(metric)
+      metric = metric/jnp.linalg.norm(metric)*jnp.sqrt(out_dim) # normalize to sqrt(dim(obs)) norm
+    elif FLAGS.metric_activation == 'sigmoid':
+      metric = jax.nn.sigmoid(metric)
+    elif FLAGS.metric_activation == 'softplus':
+      metric = jax.nn.softplus(metric)
+    else:
+      raise NotImplementedError
+    
     return jnp.diag(metric)
+    # return metric@metric.transpose((0, 2, 1))
   else:
     mlp = hk.Sequential(layers)
     return mlp(x)
@@ -202,10 +209,17 @@ def init_net_opt(net_type, dims):
   elif net_type == 'metric':
     if FLAGS.metric_grad_clip:
       print('Using gradient clipping for metric')
-      opt = optax.chain(optax.clip_by_global_norm(FLAGS.metric_grad_clip), 
-                        optax.adam(FLAGS.metric_lr))
+      if FLAGS.weight_decay == 0.0:
+        opt = optax.chain(optax.clip_by_global_norm(FLAGS.metric_grad_clip), 
+                          optax.adam(FLAGS.metric_lr))
+      else:
+        opt = optax.chain(optax.clip_by_global_norm(FLAGS.metric_grad_clip), 
+                          optax.adamw(FLAGS.metric_lr, weight_decay=FLAGS.weight_decay))
     else:
-      opt = optax.adam(FLAGS.metric_lr)
+      if FLAGS.weight_decay == 0.0:
+        opt = optax.adam(FLAGS.metric_lr)
+      else:
+        opt = optax.adamw(FLAGS.metric_lr, weight_decay=FLAGS.weight_decay)
   else:
     opt = optax.adam(FLAGS.lr)
   Model = namedtuple(net_type, 'net opt')

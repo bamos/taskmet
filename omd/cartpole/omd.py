@@ -56,10 +56,10 @@ class Agent:
       self.params_metric = self.metric.net.init(next(self.rngs), demo_obs)
       self.opt_state_metric = self.metric.opt.init(self.params_metric)
 
-  def getmetric(self, obs=None, action=None):
+  def getmetric(self, params, obs=None, action=None):
     if obs is None:
       obs = jnp.ones((1, self.obs_dim))
-    return self.metric.net.apply(self.params_metric, obs)
+    return self.metric.net.apply(params, obs)
 
   @partial(jax.jit, static_argnums=(0,))
   def act(self, params_Q, obs, rng):
@@ -291,7 +291,10 @@ class Agent:
     return_sol = namedtuple('return_sol', T_sol._fields + sol._fields)
     return_sol = return_sol(*T_sol, *sol)
     
-    return self.loss_Q(sol.params_Q, sol.target_params_Q, replay)[0], return_sol
+    loss = self.loss_Q(sol.params_Q, sol.target_params_Q, replay)[0]
+    if FLAGS.regularization_coeff > 0.0:
+      loss +=  FLAGS.regularization_coeff*jnp.sum(jnp.abs(self.getmetric(params_metric)))
+    return loss, return_sol
       
   @partial(jax.jit, static_argnums=(0,6))
   @chex.assert_max_traces(n=1)
@@ -311,7 +314,10 @@ class Agent:
     elif loss_type == "metric":
       (value, aux_out), grads = value_and_grad(self.loss_metric, has_aux=True)(
         params, aux_params, batch, replay)
-      updates, opt_state = self.metric.opt.update(grads, opt_state)
+      if FLAGS.weight_decay == 0.0:
+        updates, opt_state = self.metric.opt.update(grads, opt_state)
+      else:
+        updates, opt_state = self.metric.opt.update(grads, opt_state, params) # giving params because adamw needs params as well
       new_params = optax.apply_updates(params, updates)
 
       UpdOut = namedtuple('Upd_{}'.format(loss_type),
@@ -412,7 +418,7 @@ class Agent:
               'grad_norm_T': updout.grad_norm_T.item(),
               'loss_metric': updout.loss_metric.item(),
               'grad_norm_metric': updout.grad_norm_metric.item(),
-              'metric_vals': np.array(self.getmetric())}
+              'metric_vals': np.diagonal(np.array(self.getmetric(self.params_metric)))}
 
     elif FLAGS.agent_type == 'mle':
       for i in range(FLAGS.num_T_steps):
