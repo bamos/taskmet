@@ -2,8 +2,6 @@ from functools import partial
 import os
 import sys
 
-import sys
-
 import argparse
 import ast
 import torch
@@ -64,7 +62,7 @@ class Workspace:
             self.model.parameters(), lr=lr, weight_decay=cfg.loss_kwargs.weight_decay
         )
         self.train_iter = 0
-        self.best_DQ = -float("inf")
+        self.best_loss = float("inf")
 
     def run(self):
         logger = Logger(os.getcwd(), "log.csv")
@@ -150,9 +148,9 @@ class Workspace:
                 metrics = self.val_metrices(loss_fn, X_val, Y_val, Y_val_aux)
                 logger.log(metrics, iter=self.train_iter, partition="Val")
                 # Save model if it's the best one
-                if metrics["DQ"] >= self.best_DQ:
+                if metrics["outer_loss"] < self.best_loss:
                     self.save("best")
-                    self.best_DQ = metrics["DQ"]
+                    self.best_loss = metrics["outer_loss"]
                     self.best_iter = self.train_iter
 
             self.optimizer.step()  # putting this after the validation step to avoid using new metric for validation inner loss

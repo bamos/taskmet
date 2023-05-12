@@ -338,6 +338,7 @@ def _get_learned_loss(
     #       Try to load sampled points
     master_filename = os.path.join(folder, f"{problem.__class__.__name__}.csv")
     problem_filename, _ = find_saved_problem(master_filename, problem.__dict__)
+    print(f"Problem filename: {problem_filename}")
     samples_filename_read = f"{problem_filename[:-4]}_{sampling}_{sampling_std}.pkl"
 
     # Check if there are enough stored samples
@@ -400,7 +401,7 @@ def _get_learned_loss(
 
         # Save dataset
         samples_filename_write = (
-            f"{problem_filename[:-4]}_{sampling}_{sampling_std}_{time.time()}.pkl"
+            f"{problem_filename[:-4]}_{sampling}_{sampling_std}.pkl"
         )
         with open(samples_filename_write, "wb") as filehandle:
             pickle.dump((num_extra_samples, SL_dataset), filehandle)

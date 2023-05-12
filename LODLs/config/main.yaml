@@ -29,8 +29,8 @@ hydra:
     subdir: ${hydra.job.num}_${hydra.runtime.choices.problem}_${hydra.runtime.choices.method}
   launcher:
     max_num_timeout: 100000
-    timeout_min: 4319
+    timeout_min: 300
     partition: learnlab
-    mem_gb: 64
+    mem_gb: 2
     gpus_per_node: 1
     

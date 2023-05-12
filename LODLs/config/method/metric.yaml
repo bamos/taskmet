@@ -16,7 +16,6 @@ model_kwargs:
     predictor_grad_clip_norm: 1e-0
 
     metric_kwargs:
-    #   version: 'v1'
       num_hidden: 100
       identity_init: False
       identity_init_scale: 100.

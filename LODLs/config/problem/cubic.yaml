@@ -12,5 +12,4 @@ problem_kwargs:
     val_frac: 0.5
 
 pred_lr: 0.1
-metric_lr: 0.01
 batchsize: 1

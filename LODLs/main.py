@@ -1,10 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import os
 import sys
 from IPython.core import ultratb
 
-sys.excepthook = ultratb.FormattedTB(mode="Plain", color_scheme="Neutral", call_pdb=1)
+# sys.excepthook = ultratb.FormattedTB(mode="Plain", color_scheme="Neutral", call_pdb=1)
 
 # Makes sure hashes are consistent
 hashseed = os.getenv("PYTHONHASHSEED")
