@@ -34,10 +34,10 @@ def main():
         exp.model = exp.model.to(device)
 
     X_train, Y_train, Y_train_aux = exp.problem.get_train_data()
-    exp.model.update_predictor(X_train, Y_train, batchsize=1000, num_iters=1)
+    exp.model.update_predictor(X_train, Y_train, num_iters=1)
 
     loc = args.exp_root+"/latest.png"
-    exp.problem.plot(loc, exp, show_grad=True)
+    exp.problem.plot(loc, exp) #, show_grad=True)
 
 
 
