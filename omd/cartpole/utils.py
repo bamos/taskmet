@@ -124,6 +124,14 @@ def soft_update_params(tau, params, target_params):
 @jax.jit
 def tree_norm(tree):
   return jnp.sqrt(sum((x**2).sum() for x in jax.tree_leaves(tree)))
+  
+@partial(jax.jit, static_argnums=(1,))
+def fill_lower_tri(v, dim):
+    # we can use jax.ensure_compile_time_eval + jnp.tri to do mask indexing
+    # but best practice is use numpy for static variable
+    # and jnp.tril_indices is just a wrapper around np.tril_indices
+    idx = np.tril_indices(dim)
+    return jnp.zeros((dim, dim), dtype=v.dtype).at[idx].set(v)
 
 def net_fn(net_type, dims, x):
   obs_dim, action_dim, hidden_dim = dims
@@ -156,10 +164,12 @@ def net_fn(net_type, dims, x):
     layers += [hk.Linear(out_dim, w_init=final_init)]
   elif net_type == 'metric':
     out_dim = obs_dim
+    # out_dim = obs_dim*obs_dim
+    # out_dim = obs_dim*(obs_dim+1)//2
     # metric_init = hk.initializers.Orthogonal(scale=1.0)
     layers = [hk.Linear(hidden_dim, w_init=init), activation,
-              hk.Linear(out_dim, w_init=final_init, b_init=hk.initializers.Constant(1.0))]
-    # layers += [hk.Reshape((out_dim, out_dim))]
+      hk.Linear(out_dim, w_init=final_init, b_init=hk.initializers.Constant(1.0))]
+    # layers += [hk.Reshape((obs_dim, obs_dim))]
 
   if net_type == 'Q' and not FLAGS.no_double:
     layers2 = [
@@ -178,22 +188,33 @@ def net_fn(net_type, dims, x):
     mlp1, mlp2 = hk.Sequential(layers), hk.Sequential(layers2)
     return mlp1(x), mlp2(x)
   elif net_type == 'metric':
-    x = jnp.ones((1, obs_dim))
-    # metric = hk.Sequential(layers)(x)
-    metric = hk.get_parameter('metric', shape=(out_dim,), init=hk.initializers.Constant(1.0))
-
-    if FLAGS.metric_activation == 'normalize':
+    if FLAGS.metric_contional:
+      # eps = hk.get_parameter('eps', shape=(1,), init=hk.initializers.Constant(1.0))
+      metric = hk.Sequential(layers)(x)
       metric = jax.nn.softplus(metric)
-      metric = metric/jnp.linalg.norm(metric)*jnp.sqrt(out_dim) # normalize to sqrt(dim(obs)) norm
-    elif FLAGS.metric_activation == 'sigmoid':
-      metric = jax.nn.sigmoid(metric)
-    elif FLAGS.metric_activation == 'softplus':
-      metric = jax.nn.softplus(metric)
+      metric = metric/jnp.linalg.norm(metric, axis= 1,keepdims=True)*jnp.sqrt(out_dim) # normalize to sqrt(dim(obs)) norm
+      diag_vmap = jax.vmap(jnp.diag, 0)
+      return diag_vmap(metric)
+      vmap_fill_lower_tri = jax.vmap(fill_lower_tri, (0, None), 0)
+      metric = vmap_fill_lower_tri(metric, obs_dim)
+      metric = metric@metric.transpose((0, 2, 1))
+      if FLAGS.metric_activation == 'normalize':
+        metric = metric/jnp.linalg.norm(metric, axis=(1,2), keepdims=True)
+      # metric = jnp.tril(metric)
+      return metric + eps*jnp.eye(obs_dim)
     else:
-      raise NotImplementedError
-    
-    return jnp.diag(metric)
-    # return metric@metric.transpose((0, 2, 1))
+      metric = hk.get_parameter('metric', shape=(out_dim,), init=hk.initializers.Constant(1.0))
+      if FLAGS.metric_activation == 'normalize':
+        metric = jax.nn.softplus(metric)
+        metric = metric/jnp.linalg.norm(metric)*jnp.sqrt(out_dim) # normalize to sqrt(dim(obs)) norm
+      elif FLAGS.metric_activation == 'sigmoid':
+        metric = jax.nn.sigmoid(metric)
+      elif FLAGS.metric_activation == 'softplus':
+        metric = jax.nn.softplus(metric)
+      else:
+        raise NotImplementedError
+      
+      return jnp.diag(metric)
   else:
     mlp = hk.Sequential(layers)
     return mlp(x)

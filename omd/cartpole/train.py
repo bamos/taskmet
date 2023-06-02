@@ -8,7 +8,7 @@ import cloudpickle as pkl
 from absl import app
 from absl import flags
 from pathlib import Path
-
+import time
 import jax
 from jax.config import config
 config.update("jax_enable_x64", True)
@@ -17,6 +17,7 @@ from logger import Logger
 from omd import Agent
 from replay_buffer import ReplayBuffer
 from utils import *
+
 
 class Workspace(object):
   def __init__(self, cfg):
@@ -64,6 +65,7 @@ class Workspace(object):
       "total_time": time.time() - start_time,
     }
     print("Beginning of training")
+    elapsed_time = []
     while self.step < FLAGS.num_train_steps:
       train_metrics.update({
         "episode": self.episode,
@@ -112,9 +114,15 @@ class Workspace(object):
       train_metrics["step"] = self.step
       losses_dict = {}
       if self.step >= FLAGS.init_steps:
-        update_metric = True if self.step>=FLAGS.metric_warmup_steps else False
-        losses_dict = self.agent.update(self.replay_buffer, update_metric=update_metric)
+        # update_metric = True if self.step>=FLAGS.metric_warmup_steps else False
+        update_metric = True
+        start_time = time.time()
+        losses_dict, run_time = self.agent.update(self.replay_buffer, update_metric=update_metric)
+        end_time = time.time()
+        if self.step>=FLAGS.metric_warmup_steps:
+          elapsed_time.append(end_time-start_time)
 
+      print(sum(elapsed_time)/(len(elapsed_time)+1e-6), len(elapsed_time))
       train_metrics.update(losses_dict)
 
       if self.step % FLAGS.log_frequency == 0:

@@ -12,7 +12,7 @@ from jax.scipy.special import logsumexp
 from jax.lax import stop_gradient
 from jax.experimental.host_callback import id_tap
 import jaxopt
-
+import time
 from utils import *
 from replay_buffer import ReplayBuffer
 from absl import flags
@@ -291,7 +291,11 @@ class Agent:
           params_metric, replay, aux_params.rng, (T_fwd_solver,))
         return T_sol.params_T, T_sol
 
-      _, T_sol = fit_dx(params_T, params_metric, replay, aux_params.rng)
+      params_T, sol = fit_dx(params_T, params_metric, replay, aux_params.rng)
+      sol_tuple = namedtuple('T_Sol',
+        'params_T loss_metric opt_state_T grad_norm_T loss_T_mse')
+      T_sol = sol_tuple(params_T, sol.loss_metric, aux_params.opt_state_T, sol.grad_norm_T, sol.loss_T_mse)
+
     else:
       T_sol = dynamics_root_solve(
         self.T_optimality_func, params_T,
@@ -313,7 +317,7 @@ class Agent:
 
     loss = self.loss_Q(sol.params_Q, sol.target_params_Q, replay)[0]
     if FLAGS.regularization_coeff > 0.0:
-      loss +=  FLAGS.regularization_coeff*jnp.sum(jnp.abs(self.getmetric(params_metric)))
+      loss +=  FLAGS.regularization_coeff*jnp.sum(jnp.abs(self.getmetric(params_metric, replay[0])))
     return loss, return_sol
 
   @partial(jax.jit, static_argnums=(0,6))
@@ -403,8 +407,10 @@ class Agent:
       else:
         aux_params = AuxP(self.params_Q, self.target_params_Q, self.opt_state_Q,
           next(self.rngs))
+      start_time = time.time()
       updout = self.update_step(self.params_T, aux_params, self.opt_state_T,
         None, replay, FLAGS.agent_type)
+      end_time = time.time()
       self.params_Q, self.opt_state_Q = updout.params_Q, updout.opt_state_Q
       self.target_params_Q = updout.target_params_Q
       self.params_T, self.opt_state_T = updout.params_T, updout.opt_state_T
@@ -413,7 +419,7 @@ class Agent:
               'loss_Q': updout.loss_Q.item(),
               'grad_norm_Q': updout.grad_norm_Q.item(),
               'entropy_Q': updout.entropy_Q.item(),
-              'next_obs_nll': updout.next_obs_nll.item()}
+              'next_obs_nll': updout.next_obs_nll.item()}, end_time - start_time
 
     elif FLAGS.agent_type == 'metric':
       if FLAGS.no_warm:
@@ -421,8 +427,10 @@ class Agent:
       else:
         aux_params = AuxM(self.params_T, self.opt_state_T, self.params_Q, self.target_params_Q,
                           self.opt_state_Q, next(self.rngs))
+      start_time = time.time()
       updout = self.update_step(self.params_metric, aux_params, self.opt_state_metric,
         None, replay, FLAGS.agent_type)
+      end_time = time.time()
       self.params_Q, self.opt_state_Q = updout.params_Q, updout.opt_state_Q
       self.target_params_Q = updout.target_params_Q
       self.params_T, self.opt_state_T = updout.params_T, updout.opt_state_T
@@ -438,9 +446,10 @@ class Agent:
               'grad_norm_T': updout.grad_norm_T.item(),
               'loss_metric': updout.loss_metric.item(),
               'grad_norm_metric': updout.grad_norm_metric.item(),
-              'metric_vals': np.diagonal(np.array(self.getmetric(self.params_metric)))}
+              'metric_vals': np.diagonal(np.array(self.getmetric(self.params_metric, replay[0])))}, end_time - start_time
 
     elif FLAGS.agent_type == 'mle':
+      start_time = time.time()
       for i in range(FLAGS.num_T_steps):
         aux_params = AuxP(None, None, None, next(self.rngs))
         replay = replay_buffer.sample(FLAGS.batch_size)
@@ -456,12 +465,12 @@ class Agent:
         self.params_Q, self.opt_state_Q = updout_Q.params_Q, updout_Q.opt_state_Q
         self.target_params_Q = soft_update_params(
           FLAGS.tau, self.params_Q, self.target_params_Q)
-
+      end_time = time.time()
       return {'loss_T_mse': updout_T.loss_T.item(),
               'vals_Q': updout_Q.vals_Q.item(),
               'loss_Q': updout_Q.loss_Q.item(),
               'grad_norm_Q': updout_Q.grad_norm_Q.item(),
-              'entropy_Q': updout_Q.entropy_Q.item()}
+              'entropy_Q': updout_Q.entropy_Q.item()}, end_time - start_time
 
     elif FLAGS.agent_type == 'vep':
       for i in range(FLAGS.num_T_steps):
