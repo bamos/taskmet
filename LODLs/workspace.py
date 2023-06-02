@@ -63,6 +63,10 @@ class Workspace:
         )
         self.train_iter = 0
         self.best_loss = float("inf")
+<<<<<<< Updated upstream
+=======
+        self.best_DQ = -float("inf")
+>>>>>>> Stashed changes
 
     def run(self):
         logger = Logger(os.getcwd(), "log.csv")
@@ -152,9 +156,19 @@ class Workspace:
                     self.save("best")
                     self.best_loss = metrics["outer_loss"]
                     self.best_iter = self.train_iter
+                    self.time_since_best = 0
+                if metrics["DQ"] > self.best_DQ:
+                    self.save("best_DQ")
+                    self.best_DQ = metrics["DQ"]
 
             self.optimizer.step()  # putting this after the validation step to avoid using new metric for validation inner loss
             self.train_iter += 1
+
+            if self.time_since_best > self.cfg.patience and self.cfg.earlystopping:
+                print("Stopping early")
+                break
+
+            self.time_since_best += 1
 
         print("Training complete, best model saved at iter {}".format(self.best_iter))
         logger.close()
@@ -267,6 +281,7 @@ class Workspace:
             "train_dq_norm": normalized_train_dq,
             "val_dq_norm": normalized_val_dq,
             "test_dq_norm": normalized_test_dq,
+            "best_iter": self.best_iter,
         }
 
         fname = "test_stats.json"

@@ -96,7 +96,7 @@ class MetricNN(nn.Module):
         L = L.view(L.shape[0], self.num_output, self.num_output)
         A = (
             torch.bmm(L, L.transpose(1, 2))
-            # + identity_fac * torch.eye(self.num_output).repeat(x.shape[0], 1, 1).cuda()
+            + identity_fac * torch.eye(self.num_output).repeat(x.shape[0], 1, 1).cuda()
         )
         # TODO: extend for PSD matrices with bounds from the
         # identity metric
@@ -541,8 +541,12 @@ class LowRankQuadratic(torch.nn.Module):
         self.Y = torch.nn.Parameter(self.Y_raw.view((-1)))
 
         # Create a quadratic matrix
+        # basis = torch.tril(
+        #     torch.rand((self.Y.shape[0], rank)) / (self.Y.shape[0] * self.Y.shape[0])
+        # )
         basis = torch.tril(
-            torch.rand((self.Y.shape[0], rank)) / (self.Y.shape[0] * self.Y.shape[0])
+            torch.rand((self.Y.shape[0], self.Y.shape[0]))
+            / (self.Y.shape[0] * self.Y.shape[0])
         )
         self.basis = torch.nn.Parameter(basis)
 

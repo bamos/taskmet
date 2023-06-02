@@ -7,7 +7,7 @@ import yaml
 import numpy as np
 import pandas as pd
 
-pd.set_option("display.precision", 2)
+# pd.set_option("display.precision", 2)
 import argparse
 
 import sys
@@ -47,7 +47,9 @@ for exp_path in exp_paths:
         stats = json.load(f)
         row.update(stats)
 
-    row["id"] = int(exp_path.split("/")[-1][0])
+    # row["id"] = int(exp_path.split("/")[-1][0])
+    # if int(row["seed"]) > 4:
+    #     continue
     rows.append(row)
 
 print("Number of experiments loaded: ", len(rows))
@@ -58,7 +60,7 @@ if len(rows) == 0:
 
 df = pd.DataFrame(rows)
 df = df.apply(pd.to_numeric, errors="ignore")
-
+df = df.sort_values(by=["dataset_seed", "seed"])
 print(df)
 
 if "train_dq_norm" in df.columns:
@@ -73,7 +75,3 @@ if "val_dq_norm" in df.columns:
 # print(df.groupby('problem')['test_dq_norm'].agg(['mean', 'std']))
 print("== mean test DQ")
 print(df.groupby(["problem", "method"])["test_dq_norm"].agg(["mean", "std"]))
-
-import ipdb
-
-ipdb.set_trace()

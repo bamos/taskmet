@@ -16,11 +16,15 @@ model_kwargs:
     predictor_grad_clip_norm: 1e-0
 
     metric_kwargs:
+<<<<<<< Updated upstream
       num_hidden: 100
+=======
+      num_hidden: 200
+>>>>>>> Stashed changes
       identity_init: False
       identity_init_scale: 100.
 
 num_inner_iters_init: 500
 num_inner_iters: 100
-pred_lr: 1e-3 # inner loss increases suddenly sometimes with 1e-2
+# pred_lr: 1e-3 # inner loss increases suddenly sometimes with 1e-2 #make sure this takes precedence over problem/pred_lr
 metric_lr: 1e-3

@@ -119,7 +119,12 @@ def print_metrics(
         print(
             f"{prefix} {partition} DQ: {objective:.2e}, Loss: {loss:.2e}, MAE: {mae:.2f}, MSE: {mse:.2e}"
         )
-        metrics[partition] = {"objective": objective, "loss": loss, "mae": mae}
+        metrics[partition] = {
+            "objective": objective,
+            "loss": loss,
+            "mae": mae,
+            "mse": mse,
+        }
 
     return metrics
 
