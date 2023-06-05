@@ -49,10 +49,7 @@ if __name__ == "__main__":
         default="portfolio",
     )
     parser.add_argument("--directory", type=str, default="exp")
-<<<<<<< Updated upstream
-=======
     parser.add_argument("--randomness", type=int, default=100)
->>>>>>> Stashed changes
     parser.add_argument("--loadnew", type=ast.literal_eval, default=False)
     parser.add_argument("--layers", type=int, default=2)
     parser.add_argument("--iters", type=int, default=5000)
@@ -194,14 +191,11 @@ if __name__ == "__main__":
         }
         problem = init_problem(PortfolioOpt, problem_kwargs)
 
-<<<<<<< Updated upstream
-=======
     random.seed(args.randomness)
     torch.manual_seed(args.randomness)
     torch.cuda.manual_seed(args.randomness)
     np.random.seed(args.randomness)
 
->>>>>>> Stashed changes
     # Load a loss function to train the ML model on
     #   TODO: Figure out loss function "type" for mypy type checking. Define class/interface?
     print(f"Loading {args.loss} Loss Function...")

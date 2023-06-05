@@ -16,11 +16,7 @@ model_kwargs:
     predictor_grad_clip_norm: 1e-0
 
     metric_kwargs:
-<<<<<<< Updated upstream
-      num_hidden: 100
-=======
       num_hidden: 200
->>>>>>> Stashed changes
       identity_init: False
       identity_init_scale: 100.
 

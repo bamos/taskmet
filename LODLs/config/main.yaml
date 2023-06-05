@@ -31,15 +31,9 @@ hydra:
     subdir: ${hydra.runtime.choices.problem}_${hydra.runtime.choices.method}_${dataset_seed}_${seed}
   launcher:
     max_num_timeout: 100000
-<<<<<<< Updated upstream
-    timeout_min: 300
-    partition: learnlab
-    mem_gb: 2
-=======
     timeout_min: 420
     partition: learnlab
     mem_gb: 5
->>>>>>> Stashed changes
     gpus_per_node: 1
   # launcher:
   #   timeout_min: 300

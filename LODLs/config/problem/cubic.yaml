@@ -12,8 +12,4 @@ problem_kwargs:
     val_frac: 0.5
 
 pred_lr: 0.1
-<<<<<<< Updated upstream
-batchsize: 1
-=======
 batchsize: 50
->>>>>>> Stashed changes

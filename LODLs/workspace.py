@@ -63,10 +63,7 @@ class Workspace:
         )
         self.train_iter = 0
         self.best_loss = float("inf")
-<<<<<<< Updated upstream
-=======
         self.best_DQ = -float("inf")
->>>>>>> Stashed changes
 
     def run(self):
         logger = Logger(os.getcwd(), "log.csv")
