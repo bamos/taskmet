@@ -29,6 +29,7 @@ mse_loss = lambda x, xp: ((x - xp) ** 2).sum(-1).mean()
 def metric_loss(x, xp, A):
   err = jnp.expand_dims((x - xp), 2)
   return (err.transpose((0,2,1)) @ A @ err).sum(-1).mean()
+  # return ((A@err) ** 2).squeeze().sum(-1).mean()
 
 
 class Agent:
@@ -446,7 +447,7 @@ class Agent:
               'grad_norm_T': updout.grad_norm_T.item(),
               'loss_metric': updout.loss_metric.item(),
               'grad_norm_metric': updout.grad_norm_metric.item(),
-              'metric_vals': np.diagonal(np.array(self.getmetric(self.params_metric, replay[0])))}, end_time - start_time
+              'metric_vals': np.array(self.getmetric(self.params_metric, replay[0]))[0]}, end_time - start_time
 
     elif FLAGS.agent_type == 'mle':
       start_time = time.time()

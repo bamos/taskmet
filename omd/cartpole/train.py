@@ -114,24 +114,24 @@ class Workspace(object):
       train_metrics["step"] = self.step
       losses_dict = {}
       if self.step >= FLAGS.init_steps:
-        # update_metric = True if self.step>=FLAGS.metric_warmup_steps else False
-        update_metric = True
-        start_time = time.time()
+        update_metric = True if self.step>=FLAGS.metric_warmup_steps else False
+        # update_metric = True
+        # start_time = time.time()
         losses_dict, run_time = self.agent.update(self.replay_buffer, update_metric=update_metric)
-        end_time = time.time()
-        if self.step>=FLAGS.metric_warmup_steps:
-          elapsed_time.append(end_time-start_time)
+        # end_time = time.time()
+        # if self.step>=FLAGS.metric_warmup_steps:
+        #   elapsed_time.append(end_time-start_time)
 
-      print(sum(elapsed_time)/(len(elapsed_time)+1e-6), len(elapsed_time))
+      # print(sum(elapsed_time)/(len(elapsed_time)+1e-6), len(elapsed_time))
       train_metrics.update(losses_dict)
 
       if self.step % FLAGS.log_frequency == 0:
         if FLAGS.agent_type == 'metric' and self.step >= FLAGS.init_steps and FLAGS.use_wandb:
-          tbl.add_data(*losses_dict['metric_vals'])
+          tbl.add_data(*np.diagonal(losses_dict['metric_vals']))
         self.logger.log(train_metrics, "train")
         if self.step % FLAGS.model_log_frequency == 0:
           self.save("{}".format(self.step))
-
+          
     # final eval after training is done
     eval_metrics["episode_reward"] = evaluate(self.agent, self.eval_env, next(self.rngs))
     eval_metrics["step"] = self.step

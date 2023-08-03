@@ -25,7 +25,10 @@ alpha: 0.01
 tau: 0.01
 q_grad_clip: False
 metric_grad_clip: False
-metric_contional: False
+metric_conditional: True
+diag_metric: False
+full_network: True
+lower_tri_matrix: True
 with_inv_jac: False
 with_inv_jac_model: True
 save_buf: False
