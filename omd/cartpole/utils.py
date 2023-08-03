@@ -171,7 +171,8 @@ def net_fn(net_type, dims, x):
       layers = [hk.Linear(hidden_dim, w_init=init), activation,
         hk.Linear(out_dim, w_init=final_init, b_init=hk.initializers.Constant(1.0))]
     else:
-      layers = hk.get_parameter('metric', shape=(out_dim,), init=hk.initializers.Constant(1.0)) if FLAGS.diag_metric else [hk.Linear(out_dim, with_bias=False, w_init=hk.initializers.Constant(1.0))]
+      # layers = hk.get_parameter('metric', shape=(out_dim,), init=hk.initializers.Constant(1.0)) if FLAGS.diag_metric else [hk.Linear(out_dim, with_bias=False, w_init=hk.initializers.Constant(1.0))]
+      layers = [hk.Linear(out_dim, with_bias=False, w_init=hk.initializers.Constant(1.0))]
     if not FLAGS.lower_tri_matrix and not FLAGS.diag_metric:
       layers += [hk.Reshape((obs_dim, obs_dim))]
 
@@ -199,7 +200,8 @@ def net_fn(net_type, dims, x):
     if FLAGS.full_network:
       metric = hk.Sequential(layers)(x)
     else:
-      metric = hk.Sequential(layers)(x) if not FLAGS.diag_metric else layers*x
+      # metric = hk.Sequential(layers)(x) if not FLAGS.diag_metric else layers*x
+      metric = hk.Sequential(layers)(x)
 
     if FLAGS.lower_tri_matrix and not FLAGS.diag_metric:
       vmap_fill_lower_tri = jax.vmap(fill_lower_tri, (0, None), 0)
@@ -210,8 +212,8 @@ def net_fn(net_type, dims, x):
       metric = jax.nn.softplus(metric)
       metric = diag_vmap(metric)
     else:
-      # metric = metric@metric.transpose((0, 2, 1)) # when metric is covariance
-      metric = metric.transpose((0, 2, 1))@metric # when metric is inverse of covariance
+      metric = metric@metric.transpose((0, 2, 1)) # when metric is covariance
+      # metric = metric.transpose((0, 2, 1))@metric # when metric is inverse of covariance
 
     if FLAGS.metric_activation == 'normalize':
       diag_metric = diag_vmap(metric)
@@ -221,7 +223,7 @@ def net_fn(net_type, dims, x):
       metric = metric/metric_norm*np.sqrt(obs_dim) # because in diag_metric, we are directly using metric as variance instread of std dev as in not_diag variant
       # metric = metric/(metric_norm**2)*obs_dim # normalize the standard deviation to standard deviation of mse metric
     # print(metric)
-    # metric = jnp.linalg.inv(metric) # when we assume that we initialized metric as covariance matrix, then we need to take inverse as that's what we use in our formulation
+    metric = jnp.linalg.inv(metric) # when we assume that we initialized metric as covariance matrix, then we need to take inverse as that's what we use in our formulation
     return metric
   else:
     mlp = hk.Sequential(layers)

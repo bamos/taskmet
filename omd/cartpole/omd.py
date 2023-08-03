@@ -55,13 +55,18 @@ class Agent:
 
     if FLAGS.agent_type == 'metric':
       self.metric = init_net_opt('metric', (self.obs_dim, self.action_dim, FLAGS.hidden_dim))
-      self.params_metric = self.metric.net.init(next(self.rngs), demo_obs)
+      # self.params_metric = self.metric.net.init(next(self.rngs), demo_obs)
+      self.params_metric = self.metric.net.init(next(self.rngs), demo_obs_action)
       self.opt_state_metric = self.metric.opt.init(self.params_metric)
 
   def getmetric(self, params, obs=None, action=None):
-    if obs is None:
-      obs = jnp.ones((1, self.obs_dim))
-    return self.metric.net.apply(params, obs)
+    if not isinstance(action, int):
+      action = action[:, 0]
+    a = jax.nn.one_hot(action, self.action_dim)
+    input=jnp.concatenate((obs, a), axis=-1)
+    if obs is None and action is None:
+      input = jnp.ones((1, self.obs_dim+self.action_dim))
+    return self.metric.net.apply(params, input)
 
   @partial(jax.jit, static_argnums=(0,))
   def act(self, params_Q, obs, rng):
@@ -168,7 +173,8 @@ class Agent:
   def loss_metric_mle(self, params_T, params_metric, batch, rng):
     obs, action, reward, next_obs, not_done, not_done_no_max = batch
     pred, means, logstds, reward_pred = self.model_pred(params_T, obs, action, rng)
-    metric_pred = self.metric.net.apply(params_metric, obs)
+    # metric_pred = self.metric.net.apply(params_metric, obs)
+    metric_pred = self.getmetric(params_metric, obs, action)
     assert next_obs.ndim == pred.ndim  # no undesired broadcasting
 
     nll = metric_loss(pred, next_obs, metric_pred)
@@ -318,7 +324,7 @@ class Agent:
 
     loss = self.loss_Q(sol.params_Q, sol.target_params_Q, replay)[0]
     if FLAGS.regularization_coeff > 0.0:
-      loss +=  FLAGS.regularization_coeff*jnp.sum(jnp.abs(self.getmetric(params_metric, replay[0])))
+      loss +=  FLAGS.regularization_coeff*jnp.sum(jnp.abs(self.getmetric(params_metric, replay[0], replay[1])))
     return loss, return_sol
 
   @partial(jax.jit, static_argnums=(0,6))
@@ -447,7 +453,7 @@ class Agent:
               'grad_norm_T': updout.grad_norm_T.item(),
               'loss_metric': updout.loss_metric.item(),
               'grad_norm_metric': updout.grad_norm_metric.item(),
-              'metric_vals': np.array(self.getmetric(self.params_metric, replay[0]))[0]}, end_time - start_time
+              'metric_vals': np.array(self.getmetric(self.params_metric, replay[0], replay[1]))[0]}, end_time - start_time
 
     elif FLAGS.agent_type == 'mle':
       start_time = time.time()
