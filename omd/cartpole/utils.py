@@ -223,7 +223,7 @@ def net_fn(net_type, dims, x):
       metric = metric/metric_norm*np.sqrt(obs_dim) # because in diag_metric, we are directly using metric as variance instread of std dev as in not_diag variant
       # metric = metric/(metric_norm**2)*obs_dim # normalize the standard deviation to standard deviation of mse metric
     # print(metric)
-    metric = jnp.linalg.inv(metric) # when we assume that we initialized metric as covariance matrix, then we need to take inverse as that's what we use in our formulation
+    # metric = jnp.linalg.inv(metric) # when we assume that we initialized metric as covariance matrix, then we need to take inverse as that's what we use in our formulation
     return metric
   else:
     mlp = hk.Sequential(layers)

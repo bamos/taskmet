@@ -8,14 +8,13 @@ import numpy as np
 from absl import flags
 
 import optax
-from jax_rl.agents.actor_critic_temp import ModelActorCriticTemp
+from jax_rl.agents.actor_critic_temp import ModelActorCriticTemp, MetricModelActorCriticTemp
 from jax_rl.agents.omd import actor, critic, model, temperature
 from jax_rl.datasets import Batch
 from jax_rl.networks import critic_net, models, policies
 from jax_rl.networks.common import InfoDict, TrainState
 
 FLAGS = flags.FLAGS
-
 
 @jax.partial(jax.jit, static_argnums=(2, 3, 4, 5))
 def _update_jit_mle(mle: ModelActorCriticTemp, batch: Batch, discount: float,
@@ -53,6 +52,17 @@ def _update_jit_omd(omd: ModelActorCriticTemp, batch: Batch, discount: float,
                                         target_entropy, inner_steps)
 
     return omd, {**merged_info}
+
+@jax.partial(jax.jit, static_argnums=(2, 3, 4, 5))
+def _update_jit_metric(taskmet: MetricModelActorCriticTemp, batch: Batch,
+                        discount: float, tau: float, target_entropy: float,
+                        update_target: bool, inner_steps: int, cg_iters:int = 10) -> InfoDict:
+    
+    # critic, actor, and temp are updated within the model update
+    taskmet, merged_info = model.update_metric(taskmet, batch, discount, tau, target_entropy,
+                                      inner_steps, cg_iters)
+    
+    return taskmet, {**merged_info}
 
 
 class OMDLearner(object):
@@ -148,4 +158,108 @@ class OMDLearner(object):
                                   self.target_entropy,
                                   self.step % self.target_update_period == 0,
                                   self.inner_steps)
+        return info
+
+class MetricLearner(object):
+    def __init__(self,
+                 observations: jnp.ndarray,
+                 actions: jnp.ndarray,
+                 seed: int,
+                 model_lr: float = 3e-4,
+                 actor_lr: float = 3e-4,
+                 critic_lr: float = 3e-4,
+                 temp_lr: float = 3e-4,
+                 metric_lr: float = 3e-4,
+                 hidden_dims: Sequence[int] = (256, 256),
+                 model_hidden_dim: int = 256,
+                 metric_hidden_dim: int = 12,
+                 discount: float = 0.99,
+                 tau: float = 0.005,
+                 target_update_period: int = 1,
+                 target_entropy: Optional[float] = None,
+                 init_temperature: float = 1.0,
+                 inner_steps: int = 1,
+                 cg_iters: int = 10,
+                 algo: str = 'taskmet',
+                 **kwargs):
+
+        action_dim = actions.shape[-1]
+        obs_dim = observations.shape[-1]
+
+        if target_entropy is None:
+            self.target_entropy = -action_dim / 2
+        else:
+            self.target_entropy = target_entropy
+
+        self.tau = tau
+        self.target_update_period = target_update_period
+        self.discount = discount
+        self.inner_steps = inner_steps
+        self.algo = algo
+        self.cg_iters = cg_iters
+
+        make_tx = lambda lr: optax.adam(learning_rate=lr)
+
+        rng = jax.random.PRNGKey(seed)
+        rng, model_key, actor_key, critic_key, temp_key, metric_key = jax.random.split(
+            rng, 6)
+
+        model_hidden_dims = tuple(model_hidden_dim for _ in hidden_dims)
+        model_def = models.DetModel(model_hidden_dims, obs_dim)
+        model = TrainState.create(model_def,
+                                  inputs=[model_key, observations, actions],
+                                  tx=make_tx(model_lr))
+
+        metric_hidden_dims = tuple(metric_hidden_dim for _ in hidden_dims)
+        out_dim = obs_dim
+        metric_def = models.MetricModel(metric_hidden_dims, out_dim)
+        metric = TrainState.create(metric_def,
+                                  inputs=[metric_key, observations, actions],
+                                  tx=make_tx(metric_lr))
+
+        actor_def = policies.NormalTanhPolicy(hidden_dims, action_dim)
+        actor = TrainState.create(actor_def,
+                                  inputs=[actor_key, observations],
+                                  tx=make_tx(actor_lr))
+
+        critic_def = critic_net.DoubleCritic(hidden_dims)
+        critic = TrainState.create(critic_def,
+                                   inputs=[critic_key, observations, actions],
+                                   tx=make_tx(critic_lr))
+        target_critic = TrainState.create(
+            critic_def, inputs=[critic_key, observations, actions])
+
+        temp = TrainState.create(temperature.Temperature(init_temperature),
+                                 inputs=[temp_key],
+                                 tx=make_tx(temp_lr))
+
+        self.taskmet = MetricModelActorCriticTemp(metric=metric,
+                                        model=model,
+                                        actor=actor,
+                                        critic=critic,
+                                        target_critic=target_critic,
+                                        temp=temp,
+                                        rng=rng)
+        self.step = 1
+
+    def sample_actions(self,
+                       observations: np.ndarray,
+                       temperature: float = 1.0) -> jnp.ndarray:
+        rng, actions = policies.sample_actions(self.taskmet.rng,
+                                               self.taskmet.actor.apply_fn,
+                                               self.taskmet.actor.params,
+                                               observations, temperature)
+
+        self.taskmet = self.taskmet.replace(rng=rng)
+
+        actions = np.asarray(actions)
+        return np.clip(actions, -1, 1)
+
+    def update(self, batch: Batch) -> InfoDict:
+        upd_func = _update_jit_metric
+        self.step += 1
+        self.taskmet, info = upd_func(self.taskmet, batch, self.discount, self.tau,
+                                  self.target_entropy,
+                                  self.step % self.target_update_period == 0,
+                                  self.inner_steps, cg_iters=self.cg_iters)
         return info

@@ -10,3 +10,14 @@ class ModelActorCriticTemp:
     target_critic: TrainState
     temp: TrainState
     rng: PRNGKey
+
+
+@flax.struct.dataclass
+class MetricModelActorCriticTemp:
+    metric: TrainState
+    model: TrainState
+    actor: TrainState
+    critic: TrainState
+    target_critic: TrainState
+    temp: TrainState
+    rng: PRNGKey
