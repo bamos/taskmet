@@ -1,0 +1,43 @@
+# Path: config/default.yaml
+
+exp_dir: './exp'
+problem: 'cubic'
+loss: "dfl"
+seed: 0
+dataset_seed: 0
+loadnew: False
+patience: 100
+earlystopping: True
+valfreq: 10
+verbose: True
+
+taskmet_kwargs:
+    # outer optimization
+    outer_iters: 500
+    metric_lr: 1e-3
+    batchsize: ???
+    dflalpha: 0.0
+    
+    # inner optimization
+    inner:
+        inner_iters: 100
+        inner_iters_init: 500
+        inner_lr: ???
+        inner_batchsize: 10
+        predictor_grad_norm_threshold: 1e-3
+        predictor_grad_clip_norm: 1e-0
+
+        # implicit differentiation
+        implicit_diff_batchsize: 10
+        implicit_diff_mode: torchopt_normal_cg
+        implicit_diff_iters: 5
+
+        verbose: True
+
+
+metric_kwargs:
+    num_hidden: 200
+    identity_init: False
+    identity_init_scale: 100.
+
+# pred_lr: 1e-3 # inner loss increases suddenly sometimes with 1e-2 #make sure this takes precedence over problem/pred_lr
