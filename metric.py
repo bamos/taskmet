@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class Metric(nn.Module):
     def __init__(
         self,
@@ -27,12 +28,12 @@ class Metric(nn.Module):
     def forward(self, x):
         # A = torch.nn.functional.softplus(self.base(x))
         identity_fac = torch.exp(self.identity_fac_log)
+
         L = self.base(x)
         L = L.view(L.shape[0], self.num_output, self.num_output)
-        A = (
-            torch.bmm(L, L.transpose(1, 2))
-            + identity_fac * torch.eye(self.num_output).repeat(x.shape[0], 1, 1).cuda()
-        )
+        A = torch.bmm(L, L.transpose(1, 2)) + identity_fac * torch.eye(
+            self.num_output, device=x.device
+        ).repeat(x.shape[0], 1, 1)
         # TODO: extend for PSD matrices with bounds from the
         # identity metric
         return A

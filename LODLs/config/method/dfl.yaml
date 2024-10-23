@@ -1,7 +1,0 @@
-# @package _global_
-
-loss: 'dfl'
-
-loss_kwargs:
-    dflalpha: 1.
-    weight_decay: 0.0
